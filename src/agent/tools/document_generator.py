@@ -4,12 +4,17 @@ import json
 import logging
 import os
 import re
+import time
+import traceback
 from typing import List
 
 logger = logging.getLogger(__name__)
 
 _PATCH_MAX_LINES = 120
 _FILES_WITH_PATCHES_MAX = 30  # max file con diff inviati all'LLM
+_LLM_TIMEOUT_SECONDS = 120    # timeout per singola chiamata LLM
+_LLM_MAX_RETRIES = 2          # tentativi dopo il primo fallimento
+_LLM_RETRY_BACKOFF = 10       # secondi di attesa tra retry
 
 
 def _truncate_patch(patch: str, max_lines: int = _PATCH_MAX_LINES) -> str:
@@ -141,8 +146,13 @@ class DocumentGenerator:
                         "Content-Type": "application/json",
                     },
                     json=payload,
-                    timeout=300,
+                    timeout=_LLM_TIMEOUT_SECONDS,
                 )
+                if resp.status_code == 429:
+                    retry_after = int(resp.headers.get("retry-after", 30))
+                    print(f"[LLM] GitHub Models rate limit hit (429) — waiting {retry_after}s", flush=True)
+                    time.sleep(retry_after)
+                    raise ValueError(f"GitHub Models rate limit (429) — retry-after={retry_after}s")
                 if not resp.ok:
                     raise ValueError(f"GitHub Models API error {resp.status_code}: {resp.text}")
                 data = resp.json()
@@ -155,42 +165,68 @@ class DocumentGenerator:
 
     # ─── Core LLM caller ──────────────────────────────────────────────────────
 
-    def _call_llm(self, prompt: str, max_tokens: int = 4096) -> str:
-        try:
-            provider = self.llm_config.provider
+    def _call_llm(self, prompt: str, max_tokens: int = 4096, section: str = "unknown") -> str:
+        last_exc = None
+        for attempt in range(1 + _LLM_MAX_RETRIES):
+            t0 = time.time()
+            print(f"[LLM] section={section} attempt={attempt+1}/{1+_LLM_MAX_RETRIES} "
+                  f"provider={self.llm_config.provider} max_tokens={max_tokens} "
+                  f"prompt_chars={len(prompt)}", flush=True)
+            try:
+                result = self._call_llm_once(prompt, max_tokens)
+                elapsed = time.time() - t0
+                print(f"[LLM] section={section} attempt={attempt+1} OK "
+                      f"elapsed={elapsed:.1f}s response_chars={len(result)}", flush=True)
+                return result
+            except Exception as e:
+                elapsed = time.time() - t0
+                last_exc = e
+                exc_type = type(e).__name__
+                print(f"[LLM] section={section} attempt={attempt+1} FAILED "
+                      f"elapsed={elapsed:.1f}s exc={exc_type}: {e}", flush=True)
+                print(f"[LLM] traceback: {traceback.format_exc()}", flush=True)
+                if attempt < _LLM_MAX_RETRIES:
+                    wait = _LLM_RETRY_BACKOFF * (attempt + 1)
+                    print(f"[LLM] retrying in {wait}s...", flush=True)
+                    time.sleep(wait)
+        print(f"[LLM] section={section} gave up after {1+_LLM_MAX_RETRIES} attempts. "
+              f"Last error: {type(last_exc).__name__}: {last_exc}", flush=True)
+        return ""
 
-            if provider == "copilot":
-                return self.llm.invoke(prompt, max_tokens=max_tokens)
+    def _call_llm_once(self, prompt: str, max_tokens: int = 4096) -> str:
+        provider = self.llm_config.provider
 
-            elif provider == "openai":
-                model = self.llm_config.openai_model
-                kwargs = {
-                    "model": model,
-                    "messages": [{"role": "user", "content": prompt}],
-                }
-                if _is_reasoning_model(model):
-                    kwargs["max_completion_tokens"] = max_tokens
-                else:
-                    kwargs["temperature"] = 0.2
-                    kwargs["max_tokens"] = max_tokens
-                resp = self.llm.chat.completions.create(**kwargs)
-                return resp.choices[0].message.content
+        if provider == "copilot":
+            return self.llm.invoke(prompt, max_tokens=max_tokens)
 
-            elif provider == "anthropic":
-                resp = self.llm.messages.create(
-                    model=self.llm_config.anthropic_model,
-                    max_tokens=max_tokens,
-                    messages=[{"role": "user", "content": prompt}],
-                )
-                return resp.content[0].text
+        elif provider == "openai":
+            model = self.llm_config.openai_model
+            kwargs = {
+                "model": model,
+                "messages": [{"role": "user", "content": prompt}],
+                "timeout": _LLM_TIMEOUT_SECONDS,
+            }
+            if _is_reasoning_model(model):
+                kwargs["max_completion_tokens"] = max_tokens
+            else:
+                kwargs["temperature"] = 0.2
+                kwargs["max_tokens"] = max_tokens
+            resp = self.llm.chat.completions.create(**kwargs)
+            return resp.choices[0].message.content
 
-        except Exception as e:
-            logger.warning(f"LLM call failed: {e}")
-            print(f"[WARN] LLM call failed: {e}", flush=True)
-            return ""
+        elif provider == "anthropic":
+            resp = self.llm.messages.create(
+                model=self.llm_config.anthropic_model,
+                max_tokens=max_tokens,
+                messages=[{"role": "user", "content": prompt}],
+                timeout=_LLM_TIMEOUT_SECONDS,
+            )
+            return resp.content[0].text
 
-    def _call_llm_json(self, prompt: str, max_tokens: int = 4096) -> dict:
-        raw = self._call_llm(prompt, max_tokens)
+        raise ValueError(f"Unsupported provider: {provider}")
+
+    def _call_llm_json(self, prompt: str, max_tokens: int = 4096, section: str = "unknown") -> dict:
+        raw = self._call_llm(prompt, max_tokens, section=section)
         if not raw:
             return {}
         # Strip markdown code fences if present
@@ -277,7 +313,7 @@ Return this JSON structure:
   "domain": "Domain/system involved (e.g. 'Node / Core / Node Forwarder')"
 }}"""
 
-        result = self._call_llm_json(prompt, max_tokens=3000)
+        result = self._call_llm_json(prompt, max_tokens=3000, section="overview")
         logger.info("Generated overview section")
         return result
 
@@ -307,7 +343,7 @@ Return this JSON structure:
   ]
 }}"""
 
-        result = self._call_llm_json(prompt, max_tokens=6000)
+        result = self._call_llm_json(prompt, max_tokens=6000, section="technical_analysis")
         logger.info(f"Generated technical analysis with {len(result.get('risk_matrix', []))} risk items")
         return result
 
@@ -360,7 +396,7 @@ Return this JSON structure (only include environments that are actually affected
   "rollback_note": "One sentence note on rollback impact (e.g. no existing resources modified)"
 }}"""
 
-        result = self._call_llm_json(prompt, max_tokens=6000)
+        result = self._call_llm_json(prompt, max_tokens=6000, section="operations_guide")
         logger.info("Generated operations guide")
         return result
 
@@ -394,6 +430,6 @@ Return this JSON structure:
   "monitoring_notes": "What to monitor after deploy and for how long"
 }}"""
 
-        result = self._call_llm_json(prompt, max_tokens=2000)
+        result = self._call_llm_json(prompt, max_tokens=2000, section="post_deploy_verification")
         logger.info(f"Generated {len(result.get('health_checks', []))} health checks")
         return result

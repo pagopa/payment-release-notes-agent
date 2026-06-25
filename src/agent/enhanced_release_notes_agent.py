@@ -76,7 +76,9 @@ class EnhancedReleaseNotesAgent:
         release_notes.additions = pr_details.get("additions", 0)
         release_notes.deletions = pr_details.get("deletions", 0)
 
-        # ── LLM: overview (summary, motivation, environments, domain) ─────────
+        environments = [e.strip() for e in config.llm.environments.split(",") if e.strip()]
+
+        # ── LLM: overview ─────────────────────────────────────────────────────
         logger.info("Generating overview section...")
         overview = self.document_generator.generate_overview(pr_details, commits, files)
         release_notes.summary = overview.get("executive_summary", "")
@@ -85,15 +87,14 @@ class EnhancedReleaseNotesAgent:
         release_notes.environments_affected = overview.get("environments_affected", [])
         release_notes.domain = overview.get("domain", "")
 
-        # ── LLM: technical analysis (change details + risk matrix) ────────────
+        # ── LLM: technical analysis ───────────────────────────────────────────
         logger.info("Generating technical analysis...")
         tech = self.document_generator.generate_technical_analysis(files)
         release_notes.change_details_narrative = tech.get("change_details_narrative", "")
         release_notes.risk_matrix_items = tech.get("risk_matrix", [])
 
-        # ── LLM: operations guide (deployment steps + rollback) ───────────────
+        # ── LLM: operations guide ─────────────────────────────────────────────
         logger.info("Generating operations guide...")
-        environments = [e.strip() for e in config.llm.environments.split(",") if e.strip()]
         ops = self.document_generator.generate_operations_guide(
             pr_details=pr_details,
             overview=overview,
