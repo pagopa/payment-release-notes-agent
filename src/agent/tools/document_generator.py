@@ -149,6 +149,11 @@ class DocumentGenerator:
                     json=payload,
                     timeout=_LLM_TIMEOUT_SECONDS,
                 )
+                if resp.status_code == 429:
+                    retry_after = int(resp.headers.get("retry-after", 30))
+                    print(f"[LLM] GitHub Models rate limit hit (429) — waiting {retry_after}s", flush=True)
+                    time.sleep(retry_after)
+                    raise ValueError(f"GitHub Models rate limit (429) — retry-after={retry_after}s")
                 if not resp.ok:
                     raise ValueError(f"GitHub Models API error {resp.status_code}: {resp.text}")
                 data = resp.json()
