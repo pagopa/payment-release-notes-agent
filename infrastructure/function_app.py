@@ -8,6 +8,9 @@ import threading
 import uuid
 from datetime import datetime, timedelta, timezone
 
+# Jobs still pending after this many minutes are considered lost (host recycled).
+_STALE_JOB_MINUTES = int(os.getenv("STALE_JOB_MINUTES", "20"))
+
 import azure.functions as func
 
 _AUTH_LEVELS = {
@@ -24,6 +27,9 @@ app = func.FunctionApp(http_auth_level=_auth_level)
 logger = logging.getLogger(__name__)
 
 BLOB_CONTAINER = "release-notes"
+
+# Maps job_id → threading.Event used to stop its heartbeat thread.
+_heartbeat_stops: dict = {}
 
 
 # ── 1. POST /api/generate ─────────────────────────────────────────────────────
@@ -55,9 +61,25 @@ def enqueue_generate(req: func.HttpRequest) -> func.HttpResponse:
         target=_do_generate,
         args=(conn_str, job_id, platform, pr_number, version,
               jira_issue_key, confluence_space, confluence_parent_page, confluence_page_title),
-        daemon=False,
+        daemon=True,  # daemon=True: dies cleanly with host instead of blocking shutdown
     )
     thread.start()
+
+    # Heartbeat thread: updates .pending blob timestamp every 60 s so the
+    # stale-job cleanup timer knows this job is still alive.
+    stop_heartbeat = threading.Event()
+
+    def _heartbeat():
+        while not stop_heartbeat.wait(60):
+            try:
+                _upload_blob(conn_str, f"{job_id}.pending", b"pending")
+            except Exception:
+                pass
+
+    hb = threading.Thread(target=_heartbeat, daemon=True)
+    hb.start()
+    # stop_heartbeat is set by _do_generate via a wrapper — see below
+    _heartbeat_stops[job_id] = stop_heartbeat
 
     logger.info(
         "Started job %s for %s#%s v%s (jira=%s confluence=%s)",
@@ -210,6 +232,11 @@ def _do_generate(
         _upload_blob(conn_str, f"{job_id}.error", str(exc).encode())
         _delete_blob(conn_str, f"{job_id}.pending")
 
+    finally:
+        stop = _heartbeat_stops.pop(job_id, None)
+        if stop:
+            stop.set()
+
 
 # ── Blob helpers ──────────────────────────────────────────────────────────────
 
@@ -240,6 +267,51 @@ def _blob_exists(container, name: str) -> bool:
         return True
     except Exception:
         return False
+
+
+# ── 3. Timer: mark stale pending jobs as error ────────────────────────────────
+
+@app.timer_trigger(schedule="0 */30 * * * *", arg_name="timer", run_on_startup=False)
+def cleanup_stale_jobs(timer: func.TimerRequest) -> None:
+    """Convert .pending blobs older than _STALE_JOB_MINUTES to .error blobs.
+
+    Needed because background threads are killed without raising Python
+    exceptions when the Azure Functions host recycles (scale-to-zero on
+    Consumption plan, timeout on any plan) — leaving .pending blobs forever.
+    """
+    from azure.storage.blob import BlobServiceClient
+
+    conn_str = os.environ.get("AzureWebJobsStorage")
+    if not conn_str:
+        logger.warning("cleanup_stale_jobs: AzureWebJobsStorage not set, skipping")
+        return
+
+    svc = BlobServiceClient.from_connection_string(conn_str)
+    container = svc.get_container_client(BLOB_CONTAINER)
+    cutoff = datetime.now(timezone.utc) - timedelta(minutes=_STALE_JOB_MINUTES)
+
+    try:
+        blobs = list(container.list_blobs(name_starts_with=""))
+    except Exception as exc:
+        logger.warning("cleanup_stale_jobs: could not list blobs: %s", exc)
+        return
+
+    for blob in blobs:
+        if not blob.name.endswith(".pending"):
+            continue
+        last_modified = blob.last_modified
+        if last_modified and last_modified < cutoff:
+            job_id = blob.name[: -len(".pending")]
+            error_msg = (
+                f"Job timed out: still pending after {_STALE_JOB_MINUTES} minutes. "
+                "The Azure Functions host likely recycled while processing a large PR."
+            )
+            logger.warning("Marking stale job %s as error (last_modified=%s)", job_id, last_modified)
+            try:
+                _upload_blob(conn_str, f"{job_id}.error", error_msg.encode())
+                _delete_blob(conn_str, f"{job_id}.pending")
+            except Exception as exc:
+                logger.error("cleanup_stale_jobs: failed to mark %s: %s", job_id, exc)
 
 
 def _error(status: int, message: str) -> func.HttpResponse:
