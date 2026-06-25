@@ -4,12 +4,17 @@ import json
 import logging
 import os
 import re
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import List
 
 logger = logging.getLogger(__name__)
 
 _PATCH_MAX_LINES = 120
 _FILES_WITH_PATCHES_MAX = 30  # max file con diff inviati all'LLM
+_LLM_TIMEOUT_SECONDS = 120    # timeout per singola chiamata LLM
+_LLM_MAX_RETRIES = 2          # tentativi dopo il primo fallimento
+_LLM_RETRY_BACKOFF = 10       # secondi di attesa tra retry
 
 
 def _truncate_patch(patch: str, max_lines: int = _PATCH_MAX_LINES) -> str:
@@ -141,7 +146,7 @@ class DocumentGenerator:
                         "Content-Type": "application/json",
                     },
                     json=payload,
-                    timeout=300,
+                    timeout=_LLM_TIMEOUT_SECONDS,
                 )
                 if not resp.ok:
                     raise ValueError(f"GitHub Models API error {resp.status_code}: {resp.text}")
@@ -156,38 +161,53 @@ class DocumentGenerator:
     # ─── Core LLM caller ──────────────────────────────────────────────────────
 
     def _call_llm(self, prompt: str, max_tokens: int = 4096) -> str:
-        try:
-            provider = self.llm_config.provider
+        last_exc = None
+        for attempt in range(1 + _LLM_MAX_RETRIES):
+            try:
+                return self._call_llm_once(prompt, max_tokens)
+            except Exception as e:
+                last_exc = e
+                if attempt < _LLM_MAX_RETRIES:
+                    wait = _LLM_RETRY_BACKOFF * (attempt + 1)
+                    logger.warning("LLM call failed (attempt %d/%d): %s — retrying in %ds",
+                                   attempt + 1, 1 + _LLM_MAX_RETRIES, e, wait)
+                    print(f"[WARN] LLM attempt {attempt+1} failed: {e} — retrying in {wait}s", flush=True)
+                    time.sleep(wait)
+        logger.error("LLM call failed after %d attempts: %s", 1 + _LLM_MAX_RETRIES, last_exc)
+        print(f"[ERROR] LLM call gave up after {1 + _LLM_MAX_RETRIES} attempts: {last_exc}", flush=True)
+        return ""
 
-            if provider == "copilot":
-                return self.llm.invoke(prompt, max_tokens=max_tokens)
+    def _call_llm_once(self, prompt: str, max_tokens: int = 4096) -> str:
+        provider = self.llm_config.provider
 
-            elif provider == "openai":
-                model = self.llm_config.openai_model
-                kwargs = {
-                    "model": model,
-                    "messages": [{"role": "user", "content": prompt}],
-                }
-                if _is_reasoning_model(model):
-                    kwargs["max_completion_tokens"] = max_tokens
-                else:
-                    kwargs["temperature"] = 0.2
-                    kwargs["max_tokens"] = max_tokens
-                resp = self.llm.chat.completions.create(**kwargs)
-                return resp.choices[0].message.content
+        if provider == "copilot":
+            return self.llm.invoke(prompt, max_tokens=max_tokens)
 
-            elif provider == "anthropic":
-                resp = self.llm.messages.create(
-                    model=self.llm_config.anthropic_model,
-                    max_tokens=max_tokens,
-                    messages=[{"role": "user", "content": prompt}],
-                )
-                return resp.content[0].text
+        elif provider == "openai":
+            model = self.llm_config.openai_model
+            kwargs = {
+                "model": model,
+                "messages": [{"role": "user", "content": prompt}],
+                "timeout": _LLM_TIMEOUT_SECONDS,
+            }
+            if _is_reasoning_model(model):
+                kwargs["max_completion_tokens"] = max_tokens
+            else:
+                kwargs["temperature"] = 0.2
+                kwargs["max_tokens"] = max_tokens
+            resp = self.llm.chat.completions.create(**kwargs)
+            return resp.choices[0].message.content
 
-        except Exception as e:
-            logger.warning(f"LLM call failed: {e}")
-            print(f"[WARN] LLM call failed: {e}", flush=True)
-            return ""
+        elif provider == "anthropic":
+            resp = self.llm.messages.create(
+                model=self.llm_config.anthropic_model,
+                max_tokens=max_tokens,
+                messages=[{"role": "user", "content": prompt}],
+                timeout=_LLM_TIMEOUT_SECONDS,
+            )
+            return resp.content[0].text
+
+        raise ValueError(f"Unsupported provider: {provider}")
 
     def _call_llm_json(self, prompt: str, max_tokens: int = 4096) -> dict:
         raw = self._call_llm(prompt, max_tokens)

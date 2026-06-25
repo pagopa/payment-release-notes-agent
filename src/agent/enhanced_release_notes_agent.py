@@ -2,6 +2,7 @@
 
 import json
 import logging
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from typing import Optional
 
@@ -76,39 +77,49 @@ class EnhancedReleaseNotesAgent:
         release_notes.additions = pr_details.get("additions", 0)
         release_notes.deletions = pr_details.get("deletions", 0)
 
-        # ── LLM: overview (summary, motivation, environments, domain) ─────────
-        logger.info("Generating overview section...")
-        overview = self.document_generator.generate_overview(pr_details, commits, files)
+        environments = [e.strip() for e in config.llm.environments.split(",") if e.strip()]
+
+        # ── Step 1: overview + technical in parallel (no dependencies) ────────
+        logger.info("Generating overview and technical analysis in parallel...")
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            f_overview = pool.submit(
+                self.document_generator.generate_overview, pr_details, commits, files
+            )
+            f_tech = pool.submit(
+                self.document_generator.generate_technical_analysis, files
+            )
+        overview = f_overview.result()
+        tech = f_tech.result()
+
         release_notes.summary = overview.get("executive_summary", "")
         release_notes.motivation_and_context = overview.get("motivation_and_context", "")
         release_notes.user_impact = overview.get("user_impact", "")
         release_notes.environments_affected = overview.get("environments_affected", [])
         release_notes.domain = overview.get("domain", "")
-
-        # ── LLM: technical analysis (change details + risk matrix) ────────────
-        logger.info("Generating technical analysis...")
-        tech = self.document_generator.generate_technical_analysis(files)
         release_notes.change_details_narrative = tech.get("change_details_narrative", "")
         release_notes.risk_matrix_items = tech.get("risk_matrix", [])
 
-        # ── LLM: operations guide (deployment steps + rollback) ───────────────
-        logger.info("Generating operations guide...")
-        environments = [e.strip() for e in config.llm.environments.split(",") if e.strip()]
-        ops = self.document_generator.generate_operations_guide(
-            pr_details=pr_details,
-            overview=overview,
-            files=files,
-            environments=environments,
-            responsible_team=config.llm.responsible_team,
-        )
+        # ── Step 2: operations + post-deploy in parallel (both need overview) ──
+        logger.info("Generating operations guide and post-deploy verification in parallel...")
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            f_ops = pool.submit(
+                self.document_generator.generate_operations_guide,
+                pr_details=pr_details,
+                overview=overview,
+                files=files,
+                environments=environments,
+                responsible_team=config.llm.responsible_team,
+            )
+            f_verify = pool.submit(
+                self.document_generator.generate_post_deploy_verification, files, overview
+            )
+        ops = f_ops.result()
+        verify = f_verify.result()
+
         release_notes.deployment_prerequisites = ops.get("prerequisites", [])
         release_notes.deployment_steps_by_env = ops.get("deployment_steps", {})
         release_notes.rollback_plan_items = ops.get("rollback_steps", [])
         release_notes.rollback_note = ops.get("rollback_note", "")
-
-        # ── LLM: post-deploy verification ─────────────────────────────────────
-        logger.info("Generating post-deploy verification...")
-        verify = self.document_generator.generate_post_deploy_verification(files, overview)
         release_notes.post_deploy_health_checks = verify.get("health_checks", [])
         release_notes.monitoring_notes = verify.get("monitoring_notes", "")
 
