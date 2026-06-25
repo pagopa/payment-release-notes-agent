@@ -6,7 +6,6 @@ import os
 import re
 import time
 import traceback
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import List
 
 logger = logging.getLogger(__name__)
