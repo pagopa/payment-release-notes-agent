@@ -158,22 +158,6 @@ docker buildx build --platform linux/amd64 --target production \
 
 The GitHub Actions workflow `.github/workflows/docker-build.yml` builds and pushes automatically on every PR and merge to `main`.
 
-### Terraform infrastructure
-
-```bash
-cd infrastructure/terraform
-terraform init
-terraform apply \
-  -var="ghcr_owner=<owner>" \
-  -var="image_tag=<sha-tag>" \
-  -var="github_token=<PAT>" \
-  -var="llm_provider=openai" \
-  -var="openai_api_key=<key>" \
-  -var="atlassian_url=https://your-org.atlassian.net" \
-  -var="atlassian_user=email@company.com" \
-  -var="atlassian_token=<token>"
-```
-
 ### End-to-end script
 
 ```bash
