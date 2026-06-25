@@ -1,0 +1,10 @@
+PyGithub==2.1.1
+requests==2.31.0
+python-dotenv==1.0.0
+pydantic==2.5.0
+reportlab==4.0.7
+atlassian-python-api==3.41.0
+click==8.1.7
+pyyaml==6.0.1
+dataclasses-json==0.6.1
+azure-storage-blob

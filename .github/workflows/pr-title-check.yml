@@ -1,0 +1,34 @@
+name: PR Title Check
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+jobs:
+  check-title:
+    name: Validate conventional commit title
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check PR title follows conventional commits
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          PATTERN='^(feat|fix|chore|docs|refactor|ci|build|test)(\([^)]+\))?(!)?: .+'
+          if echo "$PR_TITLE" | grep -qE "$PATTERN"; then
+            echo "PR title is valid: $PR_TITLE"
+          else
+            echo "ERROR: PR title does not follow conventional commits format."
+            echo ""
+            echo "Title: \"$PR_TITLE\""
+            echo ""
+            echo "Expected format: <type>[optional scope]: <description>"
+            echo ""
+            echo "Allowed types: feat, fix, chore, docs, refactor, ci, build, test"
+            echo ""
+            echo "Examples:"
+            echo "  feat: add Confluence export"
+            echo "  fix(pdf): correct inline code rendering"
+            echo "  chore: update dependencies"
+            echo "  feat!: breaking change in API"
+            exit 1
+          fi
