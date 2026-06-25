@@ -134,6 +134,7 @@ module "__v4__" {
 - `hashicorp/azurerm ~> 4.16` (v4 stacks) or `<= 3.116.0` (v3/legacy)
 - `hashicorp/azuread ~> 3.1`
 - `azure/azapi <= 1.3.0`
+- `cyrilgdn/postgresql ~> 1.26.0`
 
 ---
 
