@@ -207,7 +207,6 @@ def _do_generate(
         line = f"[ERROR] FAILED {job_id}: {exc}"
         logger.exception(line)
         print(line, flush=True)
-        _append_log(job_id, f"FAILED: {exc}")
         _upload_blob(conn_str, f"{job_id}.error", str(exc).encode())
         _delete_blob(conn_str, f"{job_id}.pending")
 

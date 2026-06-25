@@ -218,7 +218,7 @@ class DocumentGenerator:
         return "\n".join(lines)
 
     def _files_with_patches(self, files: list) -> str:
-        # Prendi i file più significativi per dimensione di cambiamento
+        # Sort by total lines changed, take the most impactful files
         top = sorted(files, key=lambda f: f.additions + f.deletions, reverse=True)
         top = top[:_FILES_WITH_PATCHES_MAX]
         parts = []
@@ -228,7 +228,7 @@ class DocumentGenerator:
             parts.append(f"{header}\n{patch}" if patch else header)
         omitted = len(files) - len(top)
         if omitted > 0:
-            parts.append(f"... ({omitted} file minori omessi)")
+            parts.append(f"... ({omitted} smaller files omitted)")
         return "\n\n".join(parts)
 
     def _commits_summary(self, commits: list) -> str:
