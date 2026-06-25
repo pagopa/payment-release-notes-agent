@@ -5,6 +5,7 @@ import logging
 import os
 import re
 import time
+import traceback
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import List
 
@@ -160,21 +161,32 @@ class DocumentGenerator:
 
     # ─── Core LLM caller ──────────────────────────────────────────────────────
 
-    def _call_llm(self, prompt: str, max_tokens: int = 4096) -> str:
+    def _call_llm(self, prompt: str, max_tokens: int = 4096, section: str = "unknown") -> str:
         last_exc = None
         for attempt in range(1 + _LLM_MAX_RETRIES):
+            t0 = time.time()
+            print(f"[LLM] section={section} attempt={attempt+1}/{1+_LLM_MAX_RETRIES} "
+                  f"provider={self.llm_config.provider} max_tokens={max_tokens} "
+                  f"prompt_chars={len(prompt)}", flush=True)
             try:
-                return self._call_llm_once(prompt, max_tokens)
+                result = self._call_llm_once(prompt, max_tokens)
+                elapsed = time.time() - t0
+                print(f"[LLM] section={section} attempt={attempt+1} OK "
+                      f"elapsed={elapsed:.1f}s response_chars={len(result)}", flush=True)
+                return result
             except Exception as e:
+                elapsed = time.time() - t0
                 last_exc = e
+                exc_type = type(e).__name__
+                print(f"[LLM] section={section} attempt={attempt+1} FAILED "
+                      f"elapsed={elapsed:.1f}s exc={exc_type}: {e}", flush=True)
+                print(f"[LLM] traceback: {traceback.format_exc()}", flush=True)
                 if attempt < _LLM_MAX_RETRIES:
                     wait = _LLM_RETRY_BACKOFF * (attempt + 1)
-                    logger.warning("LLM call failed (attempt %d/%d): %s — retrying in %ds",
-                                   attempt + 1, 1 + _LLM_MAX_RETRIES, e, wait)
-                    print(f"[WARN] LLM attempt {attempt+1} failed: {e} — retrying in {wait}s", flush=True)
+                    print(f"[LLM] retrying in {wait}s...", flush=True)
                     time.sleep(wait)
-        logger.error("LLM call failed after %d attempts: %s", 1 + _LLM_MAX_RETRIES, last_exc)
-        print(f"[ERROR] LLM call gave up after {1 + _LLM_MAX_RETRIES} attempts: {last_exc}", flush=True)
+        print(f"[LLM] section={section} gave up after {1+_LLM_MAX_RETRIES} attempts. "
+              f"Last error: {type(last_exc).__name__}: {last_exc}", flush=True)
         return ""
 
     def _call_llm_once(self, prompt: str, max_tokens: int = 4096) -> str:
@@ -209,8 +221,8 @@ class DocumentGenerator:
 
         raise ValueError(f"Unsupported provider: {provider}")
 
-    def _call_llm_json(self, prompt: str, max_tokens: int = 4096) -> dict:
-        raw = self._call_llm(prompt, max_tokens)
+    def _call_llm_json(self, prompt: str, max_tokens: int = 4096, section: str = "unknown") -> dict:
+        raw = self._call_llm(prompt, max_tokens, section=section)
         if not raw:
             return {}
         # Strip markdown code fences if present
@@ -297,7 +309,7 @@ Return this JSON structure:
   "domain": "Domain/system involved (e.g. 'Node / Core / Node Forwarder')"
 }}"""
 
-        result = self._call_llm_json(prompt, max_tokens=3000)
+        result = self._call_llm_json(prompt, max_tokens=3000, section="overview")
         logger.info("Generated overview section")
         return result
 
@@ -327,7 +339,7 @@ Return this JSON structure:
   ]
 }}"""
 
-        result = self._call_llm_json(prompt, max_tokens=6000)
+        result = self._call_llm_json(prompt, max_tokens=6000, section="technical_analysis")
         logger.info(f"Generated technical analysis with {len(result.get('risk_matrix', []))} risk items")
         return result
 
@@ -380,7 +392,7 @@ Return this JSON structure (only include environments that are actually affected
   "rollback_note": "One sentence note on rollback impact (e.g. no existing resources modified)"
 }}"""
 
-        result = self._call_llm_json(prompt, max_tokens=6000)
+        result = self._call_llm_json(prompt, max_tokens=6000, section="operations_guide")
         logger.info("Generated operations guide")
         return result
 
@@ -414,6 +426,6 @@ Return this JSON structure:
   "monitoring_notes": "What to monitor after deploy and for how long"
 }}"""
 
-        result = self._call_llm_json(prompt, max_tokens=2000)
+        result = self._call_llm_json(prompt, max_tokens=2000, section="post_deploy_verification")
         logger.info(f"Generated {len(result.get('health_checks', []))} health checks")
         return result
