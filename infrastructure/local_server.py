@@ -45,28 +45,6 @@ def health():
     return {"status": "ok"}
 
 
-@app.get("/api/test-llm")
-def test_llm():
-    """LLM connectivity diagnostic."""
-    import requests as _requests
-
-    token = os.environ.get("GITHUB_TOKEN", "")
-    model = os.environ.get("COPILOT_MODEL", "openai/chatgpt-4.1")
-    if not token:
-        return JSONResponse({"error": "GITHUB_TOKEN not set"}, status_code=500)
-
-    t0 = time.time()
-    try:
-        resp = _requests.post(
-            "https://models.github.ai/inference/chat/completions",
-            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
-            json={"model": model, "messages": [{"role": "user", "content": "Reply with the single word: ok"}], "max_tokens": 5},
-            timeout=30,
-        )
-        return {"status_code": resp.status_code, "elapsed_s": round(time.time() - t0, 2), "body": resp.text[:500]}
-    except Exception as exc:
-        return JSONResponse({"error": str(exc), "elapsed_s": round(time.time() - t0, 2)}, status_code=502)
-
 
 @app.post("/api/generate", status_code=202)
 def enqueue_generate(body: dict):

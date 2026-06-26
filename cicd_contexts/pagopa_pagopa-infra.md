@@ -16,11 +16,19 @@
 No Terraform workspaces — environments are separated by `env/<env>/backend.tfvars` and `terraform.tfvars`.
 
 ## Deploy — `terraform.sh`
+
+`terraform.sh` **must be run from within the exact folder modified by the PR** — not from the repository root or from any `scripts/` directory. This applies to any stack folder, not just `-app`: it can be `-common`, `-secret`, `src/core/`, `src/next-core/`, or any other subfolder touched by the PR. Each modified folder requires a separate run.
+
 ```bash
-cd src/domains/<domain>-app
+cd src/domains/<domain>-app      # if <domain>-app was modified
+./terraform.sh plan weu-dev
+./terraform.sh apply weu-dev
+
+cd ../afm-common                 # if afm-common was also modified
 ./terraform.sh plan weu-dev
 ./terraform.sh apply weu-dev
 ```
+
 Actions: `init`, `plan`, `apply`, `summ`, `clean`.
 
 **Production (`*-prod`):**

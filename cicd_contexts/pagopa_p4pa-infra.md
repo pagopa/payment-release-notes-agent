@@ -26,12 +26,19 @@ This document describes the release and deployment process for the `pagopa/p4pa-
 ## 2. Deployment Scripts
 
 - **Terraform Management**:  
-  - `scripts/terraform.sh`: Main script for Terraform actions.
-    - Usage:  
-      - `./terraform.sh plan itn-dev` (plan for dev environment)
-      - `./terraform.sh apply itn-prod` (apply for prod environment)
-      - Supports actions: `init`, `plan`, `apply`, `clean`, `list`, `help`, etc.
-    - Handles environment-specific tfvars and workspace selection.
+  - `scripts/terraform.sh`: Main Terraform wrapper script. **Must be run from within the exact folder modified by the PR** — this can be any stack folder under `src/`, not just `-app` folders. The script is symlinked inside each stack directory.
+    - Usage — always `cd` into the specific modified folder first:
+      ```bash
+      cd src/06_domains/cittadini-app      # if cittadini-app was modified
+      cd src/06_domains/cittadini-common   # if cittadini-common was modified
+      cd src/06_domains/cittadini-secrets  # if cittadini-secrets was modified
+      cd src/05_aks                        # if aks stack was modified
+      ./terraform.sh plan itn-dev
+      ./terraform.sh apply itn-prod
+      ```
+    - The folder to `cd` into is determined by which files the PR touches — each modified stack folder requires a separate `./terraform.sh` run.
+    - Supported actions: `init`, `plan`, `apply`, `clean`, `list`, `help`.
+    - Handles environment-specific tfvars and workspace selection automatically based on the current directory.
     - Supports resource targeting via `extract_resources` function.
 - **Secrets Management**:  
   - `scripts/sops.sh`: Script for managing SOPS-encrypted secrets using Azure Key Vault.
@@ -82,8 +89,16 @@ This document describes the release and deployment process for the `pagopa/p4pa-
   - **Azure DevOps**: Parameters per environment in pipeline YAML files.
   - **Secrets**: Managed per environment in `secret/<env>/secret.ini`.
 - **Script Usage**:
-  - `terraform.sh` and `sops.sh` require environment as argument.
-  - Example: `./terraform.sh plan itn-dev`, `./sops.sh d itn-prod`.
+  - `terraform.sh` requires the environment as argument and **must be run from within the exact folder modified by the PR** — one run per modified stack folder (e.g. `cittadini-app`, `cittadini-common`, `cittadini-secrets`, `aks-platform`, etc.).
+  - `sops.sh` follows the same rule.
+  - Example — if the PR touches both `cittadini-app` and `cittadini-secrets`:
+    ```bash
+    cd src/06_domains/cittadini-app
+    ./terraform.sh plan itn-dev
+
+    cd ../cittadini-secrets
+    ./terraform.sh plan itn-dev
+    ```
 
 ---
 

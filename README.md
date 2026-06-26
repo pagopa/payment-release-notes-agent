@@ -197,7 +197,6 @@ API_KEY=xxx ./generate_release.sh pagopa/pagopa-infra 3924 1.2.0
 
 - `POST /api/generate` — starts generation, responds `202` with `job_id`
 - `GET  /api/status/{job_id}` — polling: `pending` → `completed` (with `download_url`) or `failed`
-- `GET  /api/test-llm` — LLM connectivity diagnostic
 - `GET  /health` — health check
 
 The completed PDF is available via SAS URL for 1 hour.
