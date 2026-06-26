@@ -1,0 +1,8 @@
+services:
+  app:
+    build:
+      context: .
+      target: local        # uses the FastAPI stage — native ARM64/AMD64, no Azure runtime
+    ports:
+      - "7071:7071"
+    env_file: .env         # loads GITHUB_TOKEN, LLM_PROVIDER, etc.
