@@ -320,10 +320,8 @@ Return this JSON structure:
     def generate_technical_analysis(self, files: list) -> dict:
         """Return change_details_narrative and risk_matrix."""
         lang = self.language
-        cicd_block = f"\n--- CI/CD CONTEXT ---\n{self.cicd_context}\n" if self.cicd_context else ""
         prompt = f"""You are a senior cloud infrastructure engineer.
 Language of the output: {lang}.
-{cicd_block}
 Analyse these modified files and return a JSON object (no other text).
 
 --- FILES WITH DIFFS ---

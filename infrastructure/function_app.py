@@ -5,6 +5,7 @@ import logging
 import os
 import tempfile
 import threading
+import time
 import uuid
 from datetime import datetime, timedelta, timezone
 
@@ -229,8 +230,14 @@ def _do_generate(
         line = f"[ERROR] FAILED {job_id}: {exc}"
         logger.exception(line)
         print(line, flush=True)
-        _upload_blob(conn_str, f"{job_id}.error", str(exc).encode())
-        _delete_blob(conn_str, f"{job_id}.pending")
+        for _attempt in range(3):
+            try:
+                _upload_blob(conn_str, f"{job_id}.error", str(exc).encode())
+                _delete_blob(conn_str, f"{job_id}.pending")
+                break
+            except Exception as upload_exc:
+                print(f"[ERROR] failed to write error blob (attempt {_attempt+1}): {upload_exc}", flush=True)
+                time.sleep(5)
 
     finally:
         stop = _heartbeat_stops.pop(job_id, None)
