@@ -15,7 +15,12 @@
     "logLevel": {
       "default": "Information",
       "Host.Results": "Warning",
-      "Host.Aggregator": "Warning"
+      "Host.Aggregator": "Warning",
+      "Azure.Core": "Warning",
+      "Azure.Storage": "Warning",
+      "Microsoft.Azure.WebJobs.Host.Blobs": "Warning",
+      "Microsoft.Azure.WebJobs.Host.Queues": "Warning",
+      "Microsoft.Azure.WebJobs.Extensions.Storage": "Warning"
     },
     "applicationInsights": {
       "samplingSettings": {

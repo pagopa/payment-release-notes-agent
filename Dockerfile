@@ -1,4 +1,4 @@
-# ── Stage: local development (FastAPI, native ARM64/AMD64, no Azure runtime) ──
+# ── Stage: local development (FastAPI, native ARM64/AMD64) ───────────────────
 FROM python:3.11-slim AS local
 
 WORKDIR /app
@@ -16,20 +16,19 @@ ENV PYTHONUNBUFFERED=1 LOG_LEVEL=INFO
 CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "7071"]
 
 
-# ── Stage: production (Azure Functions, linux/amd64) ─────────────────────────
-FROM --platform=linux/amd64 mcr.microsoft.com/azure-functions/python:4-python3.11 AS production
+# ── Stage: production (App Service, linux/amd64, FastAPI) ─────────────────────
+FROM --platform=linux/amd64 python:3.11-slim AS production
 
-WORKDIR /home/site/wwwroot
+WORKDIR /app
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt \
+ && pip install --no-cache-dir fastapi uvicorn
 
 COPY src/ src/
 COPY cicd_contexts/ cicd_contexts/
-COPY infrastructure/function_app.py .
-COPY infrastructure/host.json .
+COPY infrastructure/local_server.py app.py
 
-ENV AzureWebJobsScriptRoot=/home/site/wwwroot \
-    AzureFunctionsJobHost__Logging__Console__IsEnabled=true \
-    PYTHONUNBUFFERED=1 \
-    LOG_LEVEL=INFO
+ENV PYTHONUNBUFFERED=1 LOG_LEVEL=INFO
+
+CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]
