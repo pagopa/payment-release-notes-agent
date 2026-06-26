@@ -33,6 +33,49 @@ BLOB_CONTAINER = "release-notes"
 _heartbeat_stops: dict = {}
 
 
+# ── 0. GET /api/test-llm ──────────────────────────────────────────────────────
+
+@app.route(route="test-llm", methods=["GET"])
+def test_llm(req: func.HttpRequest) -> func.HttpResponse:
+    """Synchronous LLM connectivity test. Returns result or error inline (no background thread).
+    Used to diagnose whether Azure Functions can reach the LLM API at all.
+    """
+    import requests as _requests
+    import time as _time
+
+    token = os.environ.get("GITHUB_TOKEN", "")
+    model = os.environ.get("COPILOT_MODEL", "openai/chatgpt-4.1")
+    url   = "https://models.github.ai/inference/chat/completions"
+
+    if not token:
+        return _error(500, "GITHUB_TOKEN not set")
+
+    t0 = _time.time()
+    try:
+        resp = _requests.post(
+            url,
+            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+            json={"model": model, "messages": [{"role": "user", "content": "Reply with the single word: ok"}], "max_tokens": 5},
+            timeout=30,
+        )
+        elapsed = _time.time() - t0
+        return func.HttpResponse(
+            json.dumps({
+                "status_code": resp.status_code,
+                "elapsed_s": round(elapsed, 2),
+                "body": resp.text[:500],
+            }),
+            mimetype="application/json",
+        )
+    except Exception as exc:
+        elapsed = _time.time() - t0
+        return func.HttpResponse(
+            json.dumps({"error": str(exc), "elapsed_s": round(elapsed, 2)}),
+            status_code=502,
+            mimetype="application/json",
+        )
+
+
 # ── 1. POST /api/generate ─────────────────────────────────────────────────────
 
 @app.route(route="generate", methods=["POST"])
