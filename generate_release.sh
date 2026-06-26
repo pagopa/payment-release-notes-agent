@@ -11,30 +11,31 @@ set -euo pipefail
 #   output.pdf      Output file name (default: release_notes_<pr>.pdf)
 #
 # Environment variables:
-#   FUNC_BASE_URL        Azure Function base URL
-#                        (default: https://releasenotesagentsa-func.azurewebsites.net)
-#   FUNC_KEY             Function key — required if auth_level=function
+#   BASE_URL             App Service base URL
+#                        (default: https://release-notes-agent-dwhhfya4cyh7hqap.italynorth-01.azurewebsites.net)
+#   API_KEY              Optional API key sent as x-api-key header (e.g. APIM subscription key)
 #   CONFLUENCE_SPACE     Confluence space key (e.g. PAYMCLOUD)
 #   CONFLUENCE_PARENT    Title or numeric ID of the parent page
-#                        (ID found in URL: /wiki/spaces/TECH/folder/<ID>)
 #   CONFLUENCE_TITLE     Title of the Confluence page to create
 #
 # Examples:
 #   # PDF only
-#   FUNC_KEY=xxx ./generate_release.sh pagopa/pagopa-infra 3922 1.2.0
+#   ./generate_release.sh pagopa/pagopa-infra 3922 1.2.0
 #
 #   # PDF + JIRA attachment
-#   FUNC_KEY=xxx ./generate_release.sh pagopa/pagopa-infra 3922 1.2.0 PROJ-123
+#   ./generate_release.sh pagopa/pagopa-infra 3922 1.2.0 PROJ-123
 #
 #   # PDF + JIRA + Confluence page
-#   FUNC_KEY=xxx \
 #   CONFLUENCE_SPACE=PAYMCLOUD \
 #   CONFLUENCE_PARENT=1590690001 \
 #   CONFLUENCE_TITLE="Deploy pagopa-infra v1.2.0" \
 #   ./generate_release.sh pagopa/pagopa-infra 3922 1.2.0 PROJ-123
+#
+#   # With API key (e.g. APIM subscription key)
+#   API_KEY=xxx ./generate_release.sh pagopa/pagopa-infra 3922 1.2.0
 
-FUNC_BASE_URL="${FUNC_BASE_URL:-https://releasenotesagentsa-func.azurewebsites.net}"
-FUNC_KEY="${FUNC_KEY:-}"
+BASE_URL="${BASE_URL:-https://release-notes-agent-dwhhfya4cyh7hqap.italynorth-01.azurewebsites.net}"
+API_KEY="${API_KEY:-}"
 
 PLATFORM="${1:-}"
 PR_NUMBER="${2:-}"
@@ -62,23 +63,23 @@ if [[ -z "$PLATFORM" || -z "$PR_NUMBER" ]]; then
   echo "  output.pdf      Output file (default: release_notes_<pr>.pdf)"
   echo ""
   echo "Environment variables:"
-  echo "  FUNC_KEY              Function key (required if auth_level=function)"
-  echo "  FUNC_BASE_URL         Azure Function base URL"
+  echo "  BASE_URL              App Service base URL"
+  echo "  API_KEY               Optional API key (x-api-key header)"
   echo "  CONFLUENCE_SPACE      Confluence space key (e.g. PAYMCLOUD)"
   echo "  CONFLUENCE_PARENT     Title or numeric ID of the parent page"
   echo "  CONFLUENCE_TITLE      Title of the Confluence page to create"
   echo ""
   echo "Examples:"
-  echo "  FUNC_KEY=xxx $0 pagopa/pagopa-infra 3922 1.2.0"
-  echo "  FUNC_KEY=xxx $0 pagopa/pagopa-infra 3922 1.2.0 PROJ-123"
-  echo "  FUNC_KEY=xxx CONFLUENCE_SPACE=PAYMCLOUD CONFLUENCE_PARENT=1590690001 \\"
+  echo "  $0 pagopa/pagopa-infra 3922 1.2.0"
+  echo "  $0 pagopa/pagopa-infra 3922 1.2.0 PROJ-123"
+  echo "  CONFLUENCE_SPACE=PAYMCLOUD CONFLUENCE_PARENT=1590690001 \\"
   echo "    CONFLUENCE_TITLE='Deploy v1.2.0' $0 pagopa/pagopa-infra 3922 1.2.0 PROJ-123"
   exit 1
 fi
 
-AUTH=""
-if [[ -n "$FUNC_KEY" ]]; then
-  AUTH="?code=${FUNC_KEY}"
+AUTH_HEADER=""
+if [[ -n "$API_KEY" ]]; then
+  AUTH_HEADER="-H \"x-api-key: ${API_KEY}\""
 fi
 
 # ── 1. Start job ──────────────────────────────────────────────────────────────
@@ -91,15 +92,17 @@ EXTRA_FIELDS=""
 [[ -n "$CONFLUENCE_PARENT" ]] && EXTRA_FIELDS+=", \"confluence_parent_page\": \"${CONFLUENCE_PARENT}\""
 [[ -n "$CONFLUENCE_TITLE"  ]] && EXTRA_FIELDS+=", \"confluence_page_title\": \"${CONFLUENCE_TITLE}\""
 
-RESPONSE=$(curl -X POST "${FUNC_BASE_URL}/api/generate${AUTH}" \
-  -H "Content-Type: application/json" \
-  -d "{\"platform\": \"${PLATFORM}\", \"pr_number\": ${PR_NUMBER}, \"version\": \"${VERSION}\"${EXTRA_FIELDS}}" \
-  2>/dev/null) || true
+CURL_ARGS=(-X POST "${BASE_URL}/api/generate"
+  -H "Content-Type: application/json"
+  -d "{\"platform\": \"${PLATFORM}\", \"pr_number\": ${PR_NUMBER}, \"version\": \"${VERSION}\"${EXTRA_FIELDS}}")
+[[ -n "$API_KEY" ]] && CURL_ARGS+=(-H "x-api-key: ${API_KEY}")
+
+RESPONSE=$(curl "${CURL_ARGS[@]}" 2>/dev/null) || true
 
 echo "  response: $RESPONSE"
 
 if [[ -z "$RESPONSE" ]]; then
-  echo "✗ No response from the function. Check FUNC_BASE_URL and FUNC_KEY."
+  echo "✗ No response from the server. Check BASE_URL."
   exit 1
 fi
 
@@ -119,7 +122,10 @@ while [[ $ELAPSED -lt $MAX_WAIT ]]; do
   sleep "$POLL_INTERVAL"
   ELAPSED=$((ELAPSED + POLL_INTERVAL))
 
-  STATUS_RESPONSE=$(curl -sf "${FUNC_BASE_URL}/api/status/${JOB_ID}${AUTH}" || true)
+  STATUS_CURL_ARGS=(-sf "${BASE_URL}/api/status/${JOB_ID}")
+  [[ -n "$API_KEY" ]] && STATUS_CURL_ARGS+=(-H "x-api-key: ${API_KEY}")
+
+  STATUS_RESPONSE=$(curl "${STATUS_CURL_ARGS[@]}" || true)
   STATUS=$(echo "$STATUS_RESPONSE" | grep -o '"status": *"[^"]*"' | grep -o '"[^"]*"$' | tr -d '"' || true)
 
   echo "  [${ELAPSED}s] status: ${STATUS}"

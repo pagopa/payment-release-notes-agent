@@ -167,17 +167,17 @@ class RepoAnalyzer:
 `{repo_full_name}` and write a comprehensive CI/CD context document in Markdown.
 
 The document will be used to generate accurate release and deployment documentation for every PR in this repo.
-Write it in Italian. Be specific — use actual file names, script names, environment names, tool names found in the files.
+Write it in English. Be specific — use actual file names, script names, environment names, tool names found in the files.
 
 Cover these sections (use the same headers):
-1. **Stack / struttura del progetto** — come è organizzato (monorepo, microservizi, singolo stack, ecc.)
-2. **Script di deployment** — script .sh, Makefile, comandi reali con esempi di utilizzo
-3. **Pipeline CI/CD** — tool (GitHub Actions / Azure DevOps / Jenkins / ecc.), trigger, fasi (plan/apply/deploy)
-4. **Gestione degli ambienti** — nomi ambienti, come vengono separati (tfvars, workspace, branch, directory)
-5. **Convenzioni di naming** — pattern per risorse, variabili, file
-6. **Monitoring post-deploy** — strumenti (Application Insights, Datadog, Grafana, CloudWatch, ecc.)
-7. **Approvazioni e branch protection** — CODEOWNERS, reviewer richiesti, regole di merge
-8. **Processo di release** — dal merge al deploy in produzione, step manuali/automatici
+1. **Stack / Project structure** — how the repo is organised (monorepo, microservices, single stack, etc.)
+2. **Deployment scripts** — .sh scripts, Makefile, real commands with usage examples
+3. **CI/CD pipelines** — tool (GitHub Actions / Azure DevOps / Jenkins / etc.), triggers, stages (plan/apply/deploy)
+4. **Environment management** — environment names, how they are separated (tfvars, workspace, branch, directory)
+5. **Naming conventions** — patterns for resources, variables, files
+6. **Post-deploy monitoring** — tools (Application Insights, Datadog, Grafana, CloudWatch, etc.)
+7. **Approvals and branch protection** — CODEOWNERS, required reviewers, merge rules
+8. **Release process** — from merge to production deploy, manual/automatic steps
 
 If a section is not inferable from the files, write a brief note saying so rather than inventing details.
 

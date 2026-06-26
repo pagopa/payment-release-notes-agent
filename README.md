@@ -33,12 +33,9 @@ release-notes-agent/
 │   ├── config.py                             # Configuration from env vars
 │   └── cli.py                               # CLI (click)
 ├── infrastructure/
-│   ├── function_app.py                       # Azure Function (async: POST /generate + GET /status)
-│   ├── local_server.py                       # FastAPI server for local development
-│   ├── host.json
-│   └── terraform/                            # Azure infrastructure (Function App, Storage)
+│   └── local_server.py                       # FastAPI server — local dev and production
 ├── cicd_contexts/                            # CI/CD context files for supported repositories
-├── Dockerfile                               # Multi-stage: local (FastAPI) + production (Azure Functions)
+├── Dockerfile                               # Multi-stage: local (port 7071) + production (port 8000)
 ├── docker-compose.yml                        # Local startup
 └── generate_release.sh                      # End-to-end bash script
 ```
@@ -89,6 +86,9 @@ OPENAI_API_KEY=sk-...
 # LLM_PROVIDER=copilot
 # COPILOT_MODEL=openai/gpt-4.1
 
+# Azure Storage — required for the async job pattern
+AzureWebJobsStorage=DefaultEndpointsProtocol=https;AccountName=...
+
 # Atlassian — shared credentials for JIRA and Confluence
 ATLASSIAN_URL=https://your-org.atlassian.net
 ATLASSIAN_USER=email@company.com
@@ -111,17 +111,22 @@ The FastAPI server is available at `http://localhost:7071`.
 
 ### Generating a document
 
+The API is asynchronous: `POST /api/generate` returns a `job_id` immediately, then poll `GET /api/status/{job_id}` until the job completes.
+
 ```bash
-# PDF only (returned directly in the response)
+# Start generation — returns job_id
 curl -X POST http://localhost:7071/api/generate \
   -H "Content-Type: application/json" \
   -d '{
     "platform": "pagopa/pagopa-infra",
     "pr_number": 3924,
     "version": "1.2.0"
-  }' --output release_notes.pdf
+  }'
 
-# PDF + JIRA attachment + Confluence page
+# Poll until completed
+curl http://localhost:7071/api/status/<job_id>
+
+# With JIRA attachment and Confluence page
 curl -X POST http://localhost:7071/api/generate \
   -H "Content-Type: application/json" \
   -d '{
@@ -132,7 +137,7 @@ curl -X POST http://localhost:7071/api/generate \
     "confluence_space": "TECH",
     "confluence_parent_page": "1590690001",
     "confluence_page_title": "Deploy pagopa-infra v1.2.0"
-  }' --output release_notes.pdf
+  }'
 ```
 
 Request fields:
@@ -149,6 +154,8 @@ Request fields:
 
 ## Deploying to Azure
 
+The service runs as an **Azure App Service Web App for Containers** on a B1 dedicated plan. The same FastAPI server (`infrastructure/local_server.py`) is used for both local development and production.
+
 ### Build and push image
 
 ```bash
@@ -158,43 +165,77 @@ docker buildx build --platform linux/amd64 --target production \
 
 The GitHub Actions workflow `.github/workflows/docker-build.yml` builds and pushes automatically on every PR and merge to `main`.
 
+### App Service configuration
+
+| App Setting | Value |
+|-------------|-------|
+| `WEBSITES_PORT` | `8000` |
+| `GITHUB_TOKEN` | GitHub PAT |
+| `AzureWebJobsStorage` | Storage Account connection string |
+| `LLM_PROVIDER` | `copilot` |
+| `COPILOT_MODEL` | `openai/chatgpt-4.1` |
+
+See [Environment Variables](#environment-variables) for the full list.
+
 ### End-to-end script
 
 ```bash
 # Generate, poll, and download the PDF
-FUNC_KEY=xxx ./generate_release.sh pagopa/pagopa-infra 3924 1.2.0
+./generate_release.sh pagopa/pagopa-infra 3924 1.2.0
 
 # With JIRA and Confluence
-FUNC_KEY=xxx \
 CONFLUENCE_SPACE=TECH \
 CONFLUENCE_PARENT=1590690001 \
 CONFLUENCE_TITLE="Deploy v1.2.0" \
 ./generate_release.sh pagopa/pagopa-infra 3924 1.2.0 PROJ-123
+
+# With custom API key (e.g. APIM subscription key)
+API_KEY=xxx ./generate_release.sh pagopa/pagopa-infra 3924 1.2.0
 ```
 
-### Azure Function API
+### API
 
 - `POST /api/generate` — starts generation, responds `202` with `job_id`
 - `GET  /api/status/{job_id}` — polling: `pending` → `completed` (with `download_url`) or `failed`
+- `GET  /api/test-llm` — LLM connectivity diagnostic
+- `GET  /health` — health check
 
 The completed PDF is available via SAS URL for 1 hour.
 
-## Azure Function Environment Variables
+## Environment Variables
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `GITHUB_TOKEN` | ✅ | GitHub PAT (API access + GHCR image pull) |
-| `LLM_PROVIDER` | ✅ | `openai` / `anthropic` / `copilot` |
-| `OPENAI_API_KEY` | If openai | OpenAI API key |
-| `ANTHROPIC_API_KEY` | If anthropic | Anthropic API key |
-| `COPILOT_MODEL` | If copilot | GitHub Models model ID |
-| `ATLASSIAN_URL` | No | Atlassian base URL (JIRA + Confluence) |
-| `ATLASSIAN_USER` | No | Atlassian account email |
-| `ATLASSIAN_TOKEN` | No | Atlassian API token |
-| `ENVIRONMENTS` | No | Deployment environments (default: `dev,uat,prod`) |
-| `RESPONSIBLE_TEAM` | No | Team name shown in deployment steps |
-| `DOCUMENT_LANGUAGE` | No | Language for generated content (default: `Italian`) |
-| `DEPARTMENT_NAME` | No | Department name in the PDF header |
+### Required
+
+| Variable | Description |
+|----------|-------------|
+| `GITHUB_TOKEN` | GitHub PAT (API access + GitHub Models if using copilot) |
+| `AzureWebJobsStorage` | Azure Storage Account connection string (blob job state) |
+| `LLM_PROVIDER` | `openai` / `anthropic` / `copilot` |
+
+### LLM — set only for the provider in use
+
+| Variable | Description |
+|----------|-------------|
+| `COPILOT_MODEL` | GitHub Models model ID (e.g. `openai/chatgpt-4.1`) |
+| `OPENAI_API_KEY` | OpenAI API key |
+| `OPENAI_MODEL` | OpenAI model ID (default: `gpt-4o`) |
+| `ANTHROPIC_API_KEY` | Anthropic API key |
+| `ANTHROPIC_MODEL` | Anthropic model ID (default: `claude-sonnet-4-6`) |
+
+### Optional
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `WEBSITES_PORT` | — | `8000` — required on Azure App Service |
+| `ATLASSIAN_URL` | — | Atlassian base URL (JIRA + Confluence) |
+| `ATLASSIAN_USER` | — | Atlassian account email |
+| `ATLASSIAN_TOKEN` | — | Atlassian API token |
+| `ENVIRONMENTS` | `dev,uat,prod` | Deployment environments |
+| `RESPONSIBLE_TEAM` | `Team Infrastructure` | Team name in deployment steps |
+| `DOCUMENT_LANGUAGE` | `Italian` | Language for generated content |
+| `DEPARTMENT_NAME` | — | Department name in the PDF header |
+| `STALE_JOB_MINUTES` | `20` | Minutes before a pending job is marked as failed |
+| `LOG_LEVEL` | `INFO` | Python logging level |
 
 ## CLI
 
