@@ -1,4 +1,4 @@
-"""Azure Functions — async release plan generation via background thread + Blob Storage."""
+"""Azure Functions — release notes generation via Azure Queue Storage trigger."""
 
 import json
 import logging
@@ -27,21 +27,16 @@ _auth_level = _AUTH_LEVELS.get(
 app = func.FunctionApp(http_auth_level=_auth_level)
 logger = logging.getLogger(__name__)
 
-BLOB_CONTAINER = "release-notes"
-
-# Maps job_id → threading.Event used to stop its heartbeat thread.
-_heartbeat_stops: dict = {}
+BLOB_CONTAINER  = "release-notes"
+QUEUE_NAME      = "release-notes-jobs"
 
 
 # ── 0. GET /api/test-llm ──────────────────────────────────────────────────────
 
 @app.route(route="test-llm", methods=["GET"])
 def test_llm(req: func.HttpRequest) -> func.HttpResponse:
-    """Synchronous LLM connectivity test. Returns result or error inline (no background thread).
-    Used to diagnose whether Azure Functions can reach the LLM API at all.
-    """
+    """Synchronous LLM connectivity test — used for diagnostics."""
     import requests as _requests
-    import time as _time
 
     token = os.environ.get("GITHUB_TOKEN", "")
     model = os.environ.get("COPILOT_MODEL", "openai/chatgpt-4.1")
@@ -50,7 +45,7 @@ def test_llm(req: func.HttpRequest) -> func.HttpResponse:
     if not token:
         return _error(500, "GITHUB_TOKEN not set")
 
-    t0 = _time.time()
+    t0 = time.time()
     try:
         resp = _requests.post(
             url,
@@ -58,17 +53,13 @@ def test_llm(req: func.HttpRequest) -> func.HttpResponse:
             json={"model": model, "messages": [{"role": "user", "content": "Reply with the single word: ok"}], "max_tokens": 5},
             timeout=30,
         )
-        elapsed = _time.time() - t0
+        elapsed = time.time() - t0
         return func.HttpResponse(
-            json.dumps({
-                "status_code": resp.status_code,
-                "elapsed_s": round(elapsed, 2),
-                "body": resp.text[:500],
-            }),
+            json.dumps({"status_code": resp.status_code, "elapsed_s": round(elapsed, 2), "body": resp.text[:500]}),
             mimetype="application/json",
         )
     except Exception as exc:
-        elapsed = _time.time() - t0
+        elapsed = time.time() - t0
         return func.HttpResponse(
             json.dumps({"error": str(exc), "elapsed_s": round(elapsed, 2)}),
             status_code=502,
@@ -101,32 +92,19 @@ def enqueue_generate(req: func.HttpRequest) -> func.HttpResponse:
 
     _upload_blob(conn_str, f"{job_id}.pending", b"pending")
 
-    thread = threading.Thread(
-        target=_do_generate,
-        args=(conn_str, job_id, platform, pr_number, version,
-              jira_issue_key, confluence_space, confluence_parent_page, confluence_page_title),
-        daemon=True,  # daemon=True: dies cleanly with host instead of blocking shutdown
-    )
-    thread.start()
-
-    # Heartbeat thread: updates .pending blob timestamp every 60 s so the
-    # stale-job cleanup timer knows this job is still alive.
-    stop_heartbeat = threading.Event()
-
-    def _heartbeat():
-        while not stop_heartbeat.wait(60):
-            try:
-                _upload_blob(conn_str, f"{job_id}.pending", b"pending")
-            except Exception:
-                pass
-
-    hb = threading.Thread(target=_heartbeat, daemon=True)
-    hb.start()
-    # stop_heartbeat is set by _do_generate via a wrapper — see below
-    _heartbeat_stops[job_id] = stop_heartbeat
+    _enqueue_job(conn_str, {
+        "job_id":               job_id,
+        "platform":             platform,
+        "pr_number":            str(pr_number),
+        "version":              version,
+        "jira_issue_key":       jira_issue_key,
+        "confluence_space":     confluence_space,
+        "confluence_parent_page": confluence_parent_page,
+        "confluence_page_title":  confluence_page_title,
+    })
 
     logger.info(
-        "Started job %s for %s#%s v%s (jira=%s confluence=%s)",
+        "Enqueued job %s for %s#%s v%s (jira=%s confluence=%s)",
         job_id, platform, pr_number, version,
         jira_issue_key or "—", confluence_space or "—",
     )
@@ -186,6 +164,36 @@ def get_status(req: func.HttpRequest) -> func.HttpResponse:
     )
 
 
+# ── 3. Queue trigger — process release notes job ──────────────────────────────
+
+@app.queue_trigger(arg_name="msg", queue_name=QUEUE_NAME, connection="AzureWebJobsStorage")
+def process_release_notes_job(msg: func.QueueMessage) -> None:
+    """Processes a release notes job from the queue.
+
+    Runs as a proper Azure Functions invocation (not a background thread), so
+    the runtime tracks its lifecycle: if the host crashes mid-job the message
+    returns to the queue and gets retried automatically.
+    """
+    try:
+        data = json.loads(msg.get_body().decode())
+    except Exception as exc:
+        logger.error("process_release_notes_job: failed to decode message: %s", exc)
+        return
+
+    conn_str = os.environ["AzureWebJobsStorage"]
+    _do_generate(
+        conn_str=conn_str,
+        job_id=data["job_id"],
+        platform=data["platform"],
+        pr_number=data["pr_number"],
+        version=data.get("version", "1.0.0"),
+        jira_issue_key=data.get("jira_issue_key", ""),
+        confluence_space=data.get("confluence_space", ""),
+        confluence_parent_page=data.get("confluence_parent_page", ""),
+        confluence_page_title=data.get("confluence_page_title", ""),
+    )
+
+
 # ── Background worker ─────────────────────────────────────────────────────────
 
 def _log(job_id: str, msg: str, *args, conn_str: str = None) -> None:
@@ -214,6 +222,20 @@ def _do_generate(
     pr_url = f"https://github.com/{platform}/pull/{pr_number}"
     _log(job_id, "START %s v%s | jira=%s confluence=%s",
          pr_url, version, jira_issue_key or "—", confluence_space or "—", conn_str=conn_str)
+
+    # Heartbeat: updates .pending blob every 60 s so the stale-job cleanup
+    # timer can distinguish active jobs from truly stuck ones.
+    stop_heartbeat = threading.Event()
+
+    def _heartbeat():
+        while not stop_heartbeat.wait(60):
+            try:
+                _upload_blob(conn_str, f"{job_id}.pending", b"pending")
+            except Exception:
+                pass
+
+    hb = threading.Thread(target=_heartbeat, daemon=True)
+    hb.start()
 
     try:
         _log(job_id, "importing modules...", conn_str=conn_str)
@@ -289,9 +311,7 @@ def _do_generate(
                 time.sleep(5)
 
     finally:
-        stop = _heartbeat_stops.pop(job_id, None)
-        if stop:
-            stop.set()
+        stop_heartbeat.set()
 
 
 # ── Blob helpers ──────────────────────────────────────────────────────────────
@@ -325,16 +345,23 @@ def _blob_exists(container, name: str) -> bool:
         return False
 
 
-# ── 3. Timer: mark stale pending jobs as error ────────────────────────────────
+# ── Queue helper ──────────────────────────────────────────────────────────────
+
+def _enqueue_job(conn_str: str, data: dict) -> None:
+    from azure.storage.queue import QueueClient
+    client = QueueClient.from_connection_string(conn_str, QUEUE_NAME)
+    try:
+        client.create_queue()
+    except Exception:
+        pass
+    client.send_message(json.dumps(data))
+
+
+# ── 4. Timer: mark stale pending jobs as error ────────────────────────────────
 
 @app.timer_trigger(schedule="0 */30 * * * *", arg_name="timer", run_on_startup=False)
 def cleanup_stale_jobs(timer: func.TimerRequest) -> None:
-    """Convert .pending blobs older than _STALE_JOB_MINUTES to .error blobs.
-
-    Needed because background threads are killed without raising Python
-    exceptions when the Azure Functions host recycles (scale-to-zero on
-    Consumption plan, timeout on any plan) — leaving .pending blobs forever.
-    """
+    """Convert .pending blobs older than _STALE_JOB_MINUTES to .error blobs."""
     from azure.storage.blob import BlobServiceClient
 
     conn_str = os.environ.get("AzureWebJobsStorage")
