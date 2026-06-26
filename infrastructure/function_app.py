@@ -145,11 +145,16 @@ def get_status(req: func.HttpRequest) -> func.HttpResponse:
 
 # ── Background worker ─────────────────────────────────────────────────────────
 
-def _log(job_id: str, msg: str, *args) -> None:
+def _log(job_id: str, msg: str, *args, conn_str: str = None) -> None:
     formatted = msg % args if args else msg
     line = f"[INFO] {formatted}"
     logger.info(line)
     print(line, flush=True)
+    if conn_str:
+        try:
+            _upload_blob(conn_str, f"{job_id}.pending", line.encode())
+        except Exception:
+            pass
 
 
 def _do_generate(
@@ -165,34 +170,35 @@ def _do_generate(
 ) -> None:
     pr_url = f"https://github.com/{platform}/pull/{pr_number}"
     _log(job_id, "START %s v%s | jira=%s confluence=%s",
-         pr_url, version, jira_issue_key or "—", confluence_space or "—")
+         pr_url, version, jira_issue_key or "—", confluence_space or "—", conn_str=conn_str)
 
     try:
-        _log(job_id, "importing modules...")
+        _log(job_id, "importing modules...", conn_str=conn_str)
         from src.config import config
         from src.agent.enhanced_release_notes_agent import EnhancedReleaseNotesAgent
         _log(job_id, "modules imported | LLM_PROVIDER=%s MODEL=%s",
-             os.getenv("LLM_PROVIDER"), os.getenv("COPILOT_MODEL") or os.getenv("OPENAI_MODEL") or os.getenv("ANTHROPIC_MODEL"))
+             os.getenv("LLM_PROVIDER"), os.getenv("COPILOT_MODEL") or os.getenv("OPENAI_MODEL") or os.getenv("ANTHROPIC_MODEL"),
+             conn_str=conn_str)
 
         with tempfile.TemporaryDirectory() as tmpdir:
             pdf_path = os.path.join(tmpdir, f"release_notes_{pr_number}.pdf")
             config.pdf.output_path = pdf_path
             config.pdf.enabled = True
 
-            _log(job_id, "initializing agent...")
+            _log(job_id, "initializing agent...", conn_str=conn_str)
             agent = EnhancedReleaseNotesAgent()
-            _log(job_id, "agent ready — calling generate_and_export")
+            _log(job_id, "agent ready — calling generate_and_export", conn_str=conn_str)
 
             result = agent.generate_and_export(pr_url, str(version))
-            _log(job_id, "generate_and_export done: %s", list(result.keys()))
+            _log(job_id, "generate_and_export done: %s", list(result.keys()), conn_str=conn_str)
 
             actual_pdf = result["pdf"]
 
             with open(actual_pdf, "rb") as f:
                 pdf_bytes = f.read()
-            _log(job_id, "PDF size=%d bytes — uploading to blob", len(pdf_bytes))
+            _log(job_id, "PDF size=%d bytes — uploading to blob", len(pdf_bytes), conn_str=conn_str)
             _upload_blob(conn_str, f"{job_id}.pdf", pdf_bytes, content_type="application/pdf")
-            _log(job_id, "blob upload done")
+            _log(job_id, "blob upload done", conn_str=conn_str)
 
             atlassian = config.atlassian
 
