@@ -69,8 +69,6 @@ class GitHubTools:
                     "message": commit.commit.message,
                     "author": commit.commit.author.name,
                     "date": commit.commit.author.date,
-                    "additions": commit.stats.additions,
-                    "deletions": commit.stats.deletions,
                 })
             
             logger.info(f"Retrieved {len(commits)} commits from PR #{pr_number}")

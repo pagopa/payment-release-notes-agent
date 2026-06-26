@@ -182,8 +182,8 @@ class AnalysisTools:
                 category=category,
                 commit_hash=commit["sha"],
                 author=commit["author"],
-                additions=commit["additions"],
-                deletions=commit["deletions"],
+                additions=commit.get("additions", 0),
+                deletions=commit.get("deletions", 0),
                 files_changed=len(files_list),
                 files=files_list,
             )

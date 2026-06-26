@@ -247,15 +247,21 @@ class DocumentGenerator:
 
     # ─── Helpers ──────────────────────────────────────────────────────────────
 
+    _EXCLUDED_EXTENSIONS = {".md", ".hcl"}
+
+    def _relevant_files(self, files: list) -> list:
+        return [f for f in files
+                if not any(f.path.endswith(ext) for ext in self._EXCLUDED_EXTENSIONS)]
+
     def _files_summary(self, files: list) -> str:
         lines = []
-        for f in files:
+        for f in self._relevant_files(files):
             lines.append(f"  - {f.path} [{f.status}] +{f.additions}/-{f.deletions}")
         return "\n".join(lines)
 
     def _files_with_patches(self, files: list) -> str:
         # Sort by total lines changed, take the most impactful files
-        top = sorted(files, key=lambda f: f.additions + f.deletions, reverse=True)
+        top = sorted(self._relevant_files(files), key=lambda f: f.additions + f.deletions, reverse=True)
         top = top[:_FILES_WITH_PATCHES_MAX]
         parts = []
         for f in top:
