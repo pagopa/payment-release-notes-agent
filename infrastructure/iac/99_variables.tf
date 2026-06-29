@@ -1,0 +1,121 @@
+variable "prefix" {
+  type = string
+  validation {
+    condition     = length(var.prefix) <= 6
+    error_message = "Max length is 6 chars."
+  }
+}
+
+variable "env_short" {
+  type = string
+  validation {
+    condition     = length(var.env_short) <= 1
+    error_message = "Max length is 1 chars."
+  }
+}
+
+variable "location" {
+  type = string
+}
+
+variable "location_short" {
+  type        = string
+  description = "Location short, e.g. itn, weu"
+}
+
+variable "domain" {
+  type = string
+  validation {
+    condition     = length(var.domain) <= 12
+    error_message = "Max length is 12 chars."
+  }
+}
+
+variable "tags" {
+  type    = map(string)
+  default = {}
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Release Notes Agent — WebApp
+# ─────────────────────────────────────────────────────────────────────────────
+
+variable "sku_name" {
+  type        = string
+  description = "App Service Plan SKU for the release notes agent."
+  default     = "B1"
+}
+
+variable "vnet_name" {
+  type        = string
+  description = "Name of the existing VNet where the webapp outbound subnet lives."
+}
+
+variable "vnet_resource_group_name" {
+  type        = string
+  description = "Resource group of the existing VNet."
+}
+
+variable "subnet_name" {
+  type        = string
+  description = "Name of the existing subnet delegated to Microsoft.Web/serverFarms for VNet integration."
+}
+
+variable "docker_image_tag" {
+  type        = string
+  description = "Docker image tag to deploy."
+  default     = "latest"
+}
+
+variable "llm_provider" {
+  type        = string
+  description = "LLM provider: copilot | openai | anthropic"
+  default     = "copilot"
+}
+
+variable "copilot_model" {
+  type        = string
+  description = "Model ID for the GitHub Copilot / Models API."
+  default     = "openai/gpt-4.1"
+}
+
+variable "atlassian_url" {
+  type        = string
+  description = "Atlassian base URL (e.g. https://your-org.atlassian.net). Leave empty to disable."
+  default     = ""
+}
+
+
+variable "environments" {
+  type        = string
+  description = "Comma-separated list of environments included in release notes."
+  default     = "dev,uat,prod"
+}
+
+variable "responsible_team" {
+  type        = string
+  description = "Team name printed in the release notes document."
+}
+
+variable "document_language" {
+  type        = string
+  description = "Language for the generated document."
+  default     = "Italian"
+}
+
+variable "department_name" {
+  type        = string
+  description = "Department name printed in the release notes document."
+}
+
+variable "log_level" {
+  type        = string
+  description = "Python log level: DEBUG | INFO | WARNING | ERROR"
+  default     = "INFO"
+}
+
+variable "stale_job_minutes" {
+  type        = number
+  description = "Minutes after which a pending job is considered stale and marked as failed."
+  default     = 20
+}

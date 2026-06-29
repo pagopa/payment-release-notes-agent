@@ -9,8 +9,7 @@ on:
       - "requirements.txt"
       - "cicd_contexts/**"
       - "Dockerfile"
-      - "infrastructure/function_app.py"
-      - "infrastructure/host.json"
+      - "infrastructure/local_server.py"
 
 env:
   REGISTRY: ghcr.io
