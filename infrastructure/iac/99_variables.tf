@@ -6,6 +6,10 @@ variable "prefix" {
   }
 }
 
+variable "env" {
+  type = string
+}
+
 variable "env_short" {
   type = string
   validation {
@@ -40,6 +44,16 @@ variable "tags" {
 # Release Notes Agent — WebApp
 # ─────────────────────────────────────────────────────────────────────────────
 
+variable "idh_app_service_resource_tier" {
+  type        = string
+  description = "The IDH resource tier of app services."
+}
+
+variable "idh_storage_account_resource_tier" {
+  type        = string
+  description = "The IDH resource tier of storage account."
+}
+
 variable "sku_name" {
   type        = string
   description = "App Service Plan SKU for the release notes agent."
@@ -51,14 +65,9 @@ variable "vnet_name" {
   description = "Name of the existing VNet where the webapp outbound subnet lives."
 }
 
-variable "vnet_resource_group_name" {
+variable "vnet_rg" {
   type        = string
   description = "Resource group of the existing VNet."
-}
-
-variable "subnet_name" {
-  type        = string
-  description = "Name of the existing subnet delegated to Microsoft.Web/serverFarms for VNet integration."
 }
 
 variable "docker_image_tag" {
@@ -118,4 +127,21 @@ variable "stale_job_minutes" {
   type        = number
   description = "Minutes after which a pending job is considered stale and marked as failed."
   default     = 20
+}
+
+
+variable "azure_website_dns_zone_name" {
+  type = string
+}
+
+variable "private_dns_zone_blob_ids" {
+  type = list(string)
+}
+
+variable "internal_dns_zone_resource_group_name" {
+  type = string
+}
+
+variable "allowed_subnet_ids" {
+  type = list(string)
 }

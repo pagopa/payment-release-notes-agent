@@ -1,25 +1,22 @@
-# ── Existing network resources ────────────────────────────────────────────────
-
-data "azurerm_subnet" "outbound" {
-  name                 = var.subnet_name
-  virtual_network_name = var.vnet_name
-  resource_group_name  = var.vnet_resource_group_name
+data "azurerm_private_dns_zone" "azurewebsite" {
+  name                = var.azure_website_dns_zone_name
+  resource_group_name = var.internal_dns_zone_resource_group_name
 }
-
-# ── Key Vault secrets ─────────────────────────────────────────────────────────
-
+#
+# # ── Key Vault secrets ─────────────────────────────────────────────────────────
+#
 data "azurerm_key_vault_secret" "github_token" {
   name         = "github-token"
   key_vault_id = data.azurerm_key_vault.kv.id
 }
 
-data "azurerm_key_vault_secret" "storage_connection" {
-  name         = "storage-connection-string"
+data "azurerm_key_vault_secret" "atlassian_token" {
+  name         = "atlassian-token"
   key_vault_id = data.azurerm_key_vault.kv.id
 }
 
-data "azurerm_key_vault_secret" "atlassian_token" {
-  name         = "atlassian-token"
+data "azurerm_key_vault_secret" "atlassian_url" {
+  name         = "atlassian-url"
   key_vault_id = data.azurerm_key_vault.kv.id
 }
 
@@ -30,38 +27,45 @@ data "azurerm_key_vault_secret" "atlassian_user" {
 
 # ── Resource group ────────────────────────────────────────────────────────────
 
-resource "azurerm_resource_group" "main" {
+resource "azurerm_resource_group" "rg" {
   name     = "${local.project}-rg"
   location = var.location
   tags     = var.tags
 }
 
 module "webapp" {
-  source = "./.terraform/modules/__v4__/app_service"
+  source = "git::https://github.com/pagopa/terraform-azurerm-v4.git//IDH/app_service_webapp"
 
-  name                = "${local.project}-app"
-  resource_group_name = azurerm_resource_group.main.name
+  env               = var.env
+  idh_resource_tier = var.idh_app_service_resource_tier
+  product_name      = var.prefix
+
+  resource_group_name = azurerm_resource_group.rg.name
   location            = var.location
 
-  # App Service Plan (internal, dedicated)
-  plan_type = "internal"
-  plan_name = "${local.project}-plan"
-  sku_name  = var.sku_name
+  # App service plan
+  name                  = "${local.project}-app"
+  app_service_plan_name = "${local.project}-plan"
 
   docker_registry_url = "https://ghcr.io"
   docker_image        = "ghcr.io/pagopa/payment-release-notes-agent"
   docker_image_tag    = var.docker_image_tag
 
-  # Network
-  public_network_access_enabled = false
-  vnet_integration              = true
-  subnet_id                     = data.azurerm_subnet.outbound.id
-  ip_restriction_default_action = "Deny"
-
   # Runtime
   always_on                    = true
   health_check_path            = "/health"
   health_check_maxpingfailures = 10
+
+  private_endpoint_dns_zone_id = data.azurerm_private_dns_zone.azurewebsite.id
+  allow_from_apim              = true
+  allowed_subnet_ids           = var.allowed_subnet_ids
+  allowed_service_tags         = ["AzureDevOps"]
+
+  embedded_subnet = {
+    vnet_name    = var.vnet_name
+    vnet_rg_name = var.vnet_rg
+    enabled      = true
+  }
 
   app_settings = {
     # Container
@@ -74,10 +78,10 @@ module "webapp" {
     COPILOT_MODEL = var.copilot_model
 
     # Azure Storage — async job blob + queue
-    AzureWebJobsStorage = "@Microsoft.KeyVault(SecretUri=${data.azurerm_key_vault_secret.storage_connection.versionless_id})"
+    AzureWebJobsStorage = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault_secret.connection_string.value})"
 
     # Atlassian — optional (JIRA & Confluence export)
-    ATLASSIAN_URL   = var.atlassian_url
+    ATLASSIAN_URL   = "@Microsoft.KeyVault(SecretUri=${data.azurerm_key_vault_secret.atlassian_url.versionless_id})"
     ATLASSIAN_USER  = "@Microsoft.KeyVault(SecretUri=${data.azurerm_key_vault_secret.atlassian_user.versionless_id})"
     ATLASSIAN_TOKEN = "@Microsoft.KeyVault(SecretUri=${data.azurerm_key_vault_secret.atlassian_token.versionless_id})"
 
@@ -90,6 +94,10 @@ module "webapp" {
     # Ops
     LOG_LEVEL         = var.log_level
     STALE_JOB_MINUTES = tostring(var.stale_job_minutes)
+  }
+
+  autoscale_settings = {
+    max_capacity                       = 1
   }
 
   tags = var.tags
