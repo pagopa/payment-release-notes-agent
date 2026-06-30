@@ -69,7 +69,9 @@ class ConfluenceExporter:
                     body=body,
                 )
 
-        page_url = self.base_url + result.get("_links", {}).get("webui", "")
+        links = result.get("_links", {})
+        base = links.get("base") or (self.base_url.rstrip("/") + "/wiki")
+        page_url = base.rstrip("/") + links.get("webui", "")
         logger.info("Confluence: pagina creata/aggiornata → %s", page_url)
         return page_url
 
