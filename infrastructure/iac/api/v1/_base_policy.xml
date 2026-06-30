@@ -1,0 +1,19 @@
+<policies>
+    <inbound>
+        <base />
+        <set-backend-service base-url="${backend_base_url}" />
+        <set-header name="X-Request-Id" exists-action="skip">
+            <value>@(context.RequestId.ToString())</value>
+        </set-header>
+        <set-header name="Ocp-Apim-Subscription-Key" exists-action="delete" />
+    </inbound>
+    <backend>
+        <base />
+    </backend>
+    <outbound>
+        <base />
+    </outbound>
+    <on-error>
+        <base />
+    </on-error>
+</policies>

@@ -145,3 +145,31 @@ variable "internal_dns_zone_resource_group_name" {
 variable "allowed_subnet_ids" {
   type = list(string)
 }
+
+# ─────────────────────────────────────────────────────────────────────────────
+# APIM
+# ─────────────────────────────────────────────────────────────────────────────
+
+variable "api_management_name" {
+  type        = string
+  description = "Name of the existing APIM instance. Leave empty to skip APIM resources."
+  default     = ""
+}
+
+variable "api_management_rg" {
+  type        = string
+  description = "Resource group of the existing APIM instance."
+  default     = ""
+}
+
+variable "api_manager_hostname" {
+  type        = string
+  description = "Public gateway hostname of the APIM instance (used in the OpenAPI spec)."
+  default     = ""
+}
+
+variable "api_path" {
+  type        = string
+  description = "Base path exposed on APIM for this service."
+  default     = "payment-release-notes"
+}

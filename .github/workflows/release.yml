@@ -87,10 +87,10 @@ jobs:
           target: production
           push: true
           tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.semver.outputs.version }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.semver.outputs.tag }}
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
           labels: |
-            org.opencontainers.image.version=${{ steps.semver.outputs.version }}
+            org.opencontainers.image.version=${{ steps.semver.outputs.tag }}
             org.opencontainers.image.revision=${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
@@ -107,13 +107,13 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh release create "${{ steps.semver.outputs.tag }}" \
-            --title "Release ${{ steps.semver.outputs.version }}" \
+            --title "${{ steps.semver.outputs.tag }}" \
             --notes "$(cat <<'EOF'
           ## What's changed
 
           ${{ steps.pr.outputs.title }}
 
-          **Docker image:** \`${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.semver.outputs.version }}\`
+          **Docker image:** \`${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.semver.outputs.tag }}\`
           EOF
           )" \
             --latest

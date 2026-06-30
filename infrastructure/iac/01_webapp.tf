@@ -34,7 +34,8 @@ resource "azurerm_resource_group" "rg" {
 }
 
 module "webapp" {
-  source = "git::https://github.com/pagopa/terraform-azurerm-v4.git//IDH/app_service_webapp"
+  # https://github.com/pagopa/terraform-azurerm-v4/releases/tag/v10.17.0
+  source = "git::https://github.com/pagopa/terraform-azurerm-v4.git//IDH/app_service_webapp?ref=7787f9ec0d71db411ebab613d7731a4286210c30"
 
   env               = var.env
   idh_resource_tier = var.idh_app_service_resource_tier

@@ -1,5 +1,6 @@
 module "storage" {
-  source              = "git::https://github.com/pagopa/terraform-azurerm-v4.git//IDH/storage_account"
+  # https://github.com/pagopa/terraform-azurerm-v4/releases/tag/v10.17.0
+  source              = "git::https://github.com/pagopa/terraform-azurerm-v4.git//IDH/storage_account?ref=7787f9ec0d71db411ebab613d7731a4286210c30"
 
   product_name        = var.prefix
   env                 = var.env
