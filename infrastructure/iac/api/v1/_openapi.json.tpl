@@ -172,6 +172,11 @@
           "confluence_space": {
             "type": "string",
             "nullable": true
+          },
+          "confluence_url": {
+            "type": "string",
+            "nullable": true,
+            "description": "URL of the Confluence placeholder page created synchronously — present only when confluence_space is provided and Atlassian is configured"
           }
         }
       },
@@ -189,6 +194,11 @@
           "download_url": {
             "type": "string",
             "description": "Pre-signed Azure Blob URL to download the PDF — present only when status=completed, expires in 1 hour"
+          },
+          "confluence_url": {
+            "type": "string",
+            "nullable": true,
+            "description": "URL of the Confluence page (placeholder while pending, full content when completed)"
           },
           "error": {
             "type": "string",
