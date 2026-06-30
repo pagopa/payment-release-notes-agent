@@ -12,7 +12,7 @@ set -euo pipefail
 #
 # Environment variables:
 #   BASE_URL             App Service base URL
-#                        (default: https://release-notes-agent-dwhhfya4cyh7hqap.italynorth-01.azurewebsites.net)
+#                        (default: https://api.dev.platform.pagopa.it/payment-release-notes/v1/generate)
 #   API_KEY              Optional APIM subscription key (sent as Ocp-Apim-Subscription-Key header)
 #   CONFLUENCE_SPACE     Confluence space key (e.g. PAYMCLOUD)
 #   CONFLUENCE_PARENT    Title or numeric ID of the parent page
@@ -34,7 +34,7 @@ set -euo pipefail
 #   # With API key (e.g. APIM subscription key)
 #   API_KEY=xxx ./generate_release.sh pagopa/pagopa-infra 3922 1.2.0
 
-BASE_URL="${BASE_URL:-https://pagopa-d-itn-rn-agent-app.azurewebsites.net}"
+BASE_URL="${BASE_URL:-https://api.dev.platform.pagopa.it/payment-release-notes/v1}"
 API_KEY="${API_KEY:-}"
 
 PLATFORM="${1:-}"
@@ -92,7 +92,7 @@ EXTRA_FIELDS=""
 [[ -n "$CONFLUENCE_PARENT" ]] && EXTRA_FIELDS+=", \"confluence_parent_page\": \"${CONFLUENCE_PARENT}\""
 [[ -n "$CONFLUENCE_TITLE"  ]] && EXTRA_FIELDS+=", \"confluence_page_title\": \"${CONFLUENCE_TITLE}\""
 
-CURL_ARGS=(-X POST "${BASE_URL}/api/generate"
+CURL_ARGS=(-X POST "${BASE_URL}/generate"
   -H "Content-Type: application/json"
   -d "{\"platform\": \"${PLATFORM}\", \"pr_number\": ${PR_NUMBER}, \"version\": \"${VERSION}\"${EXTRA_FIELDS}}")
 [[ -n "$API_KEY" ]] && CURL_ARGS+=(-H "Ocp-Apim-Subscription-Key: ${API_KEY}")
@@ -122,7 +122,7 @@ while [[ $ELAPSED -lt $MAX_WAIT ]]; do
   sleep "$POLL_INTERVAL"
   ELAPSED=$((ELAPSED + POLL_INTERVAL))
 
-  STATUS_CURL_ARGS=(-sf "${BASE_URL}/api/status/${JOB_ID}")
+  STATUS_CURL_ARGS=(-sf "${BASE_URL}/status/${JOB_ID}")
   [[ -n "$API_KEY" ]] && STATUS_CURL_ARGS+=(-H "Ocp-Apim-Subscription-Key: ${API_KEY}")
 
   STATUS_RESPONSE=$(curl "${STATUS_CURL_ARGS[@]}" || true)
