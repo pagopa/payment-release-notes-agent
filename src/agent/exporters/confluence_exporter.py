@@ -38,10 +38,11 @@ class ConfluenceExporter:
         space: str,
         parent_page: Optional[str] = None,
         page_title: Optional[str] = None,
+        placeholder: bool = False,
+        error_message: Optional[str] = None,
     ) -> str:
-        """Crea (o aggiorna) la pagina Confluence. Ritorna l'URL della pagina."""
         title     = page_title or f"Release Notes — {release_notes.repo_full_name} PR#{release_notes.pr_number}"
-        body      = self._build_body(release_notes)
+        body      = self._build_body(release_notes, placeholder=placeholder, error_message=error_message)
         parent_id = self._resolve_parent_id(space, parent_page)
 
         if parent_id:
@@ -87,9 +88,29 @@ class ConfluenceExporter:
 
     # ── Body builder ──────────────────────────────────────────────────────────
 
-    def _build_body(self, rn) -> str:
+    def _build_body(self, rn, placeholder: bool = False, error_message: Optional[str] = None) -> str:
         parts = []
         parts.append(self._metadata_table(rn))
+
+        if error_message:
+            parts.append(
+                '<ac:structured-macro ac:name="warning"><ac:rich-text-body>'
+                f'<p><strong>Generazione del documento non riuscita.</strong></p>'
+                f'<p>{_e(error_message)}</p>'
+                '</ac:rich-text-body></ac:structured-macro>'
+            )
+            return "\n".join(p for p in parts if p)
+
+        if placeholder:
+            parts.append(
+                '<ac:structured-macro ac:name="info"><ac:rich-text-body>'
+                '<p>⏳ <strong>Generazione del documento in corso…</strong></p>'
+                '<p>Questa pagina verrà aggiornata automaticamente al termine '
+                'dell\'analisi della Pull Request.</p>'
+                '</ac:rich-text-body></ac:structured-macro>'
+            )
+            return "\n".join(p for p in parts if p)
+
         parts.append(self._section("1. Sommario Esecutivo",      rn.summary))
         parts.append(self._section("2. Motivazione e Contesto",  rn.motivation_and_context))
         parts.append(self._section("3. Dettaglio delle Modifiche", rn.change_details_narrative))
