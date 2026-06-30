@@ -34,7 +34,7 @@ set -euo pipefail
 #   # With API key (e.g. APIM subscription key)
 #   API_KEY=xxx ./generate_release.sh pagopa/pagopa-infra 3922 1.2.0
 
-BASE_URL="${BASE_URL:-https://release-notes-agent-dwhhfya4cyh7hqap.italynorth-01.azurewebsites.net}"
+BASE_URL="${BASE_URL:-https://pagopa-d-itn-rn-agent-app.azurewebsites.net}"
 API_KEY="${API_KEY:-}"
 
 PLATFORM="${1:-}"
