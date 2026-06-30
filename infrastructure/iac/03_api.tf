@@ -1,14 +1,14 @@
 module "apim_api_payment_release_notes_v1" {
   # https://github.com/pagopa/terraform-azurerm-v4/releases/tag/v10.17.0
   source = "git::https://github.com/pagopa/terraform-azurerm-v4.git//api_management_api?ref=7787f9ec0d71db411ebab613d7731a4286210c30"
-  count  = var.api_management_name != "" && var.api_management_rg != "" ? 1 : 0
+  count  = local.expose_api ? 1 : 0
 
   name                = "${var.prefix}-payment-release-notes-api"
   api_management_name = var.api_management_name
   resource_group_name = var.api_management_rg
   api_version         = "v1"
 
-  product_ids = [azurerm_api_management_product.payment_release_notes.id]
+  product_ids = ["${var.prefix}-payment-release-notes-product"]
 
   display_name = "Payment Release Notes API"
   description  = "REST API for the Payment Release Notes Agent — async release notes generation from GitHub PRs"
@@ -36,7 +36,7 @@ module "apim_api_payment_release_notes_v1" {
 }
 
 resource "azurerm_api_management_api_version_set" "payment_release_notes" {
-  count = var.api_management_name != "" && var.api_management_rg != "" ? 1 : 0
+  count = local.expose_api ? 1 : 0
 
   name                = "${var.prefix}-payment-release-notes-version-set"
   resource_group_name = var.api_management_rg
@@ -46,7 +46,7 @@ resource "azurerm_api_management_api_version_set" "payment_release_notes" {
 }
 
 resource "azurerm_api_management_product" "payment_release_notes" {
-  count = var.api_management_name != "" && var.api_management_rg != "" ? 1 : 0
+  count = local.expose_api ? 1 : 0
 
   resource_group_name   = var.api_management_rg
   api_management_name   = var.api_management_name
@@ -56,6 +56,24 @@ resource "azurerm_api_management_product" "payment_release_notes" {
   subscription_required = true
   approval_required     = false
   published             = true
+}
+
+resource "azurerm_api_management_subscription" "payment_release_notes" {
+  count = local.expose_api ? 1 : 0
+
+  resource_group_name = var.api_management_rg
+  api_management_name = var.api_management_name
+  product_id          = azurerm_api_management_product.payment_release_notes[0].id
+  display_name        = "${var.prefix}-payment-release-notes-subscription"
+  state               = "active"
+}
+
+resource "azurerm_key_vault_secret" "apim_subscription_key" {
+  count = local.expose_api ? 1 : 0
+
+  name         = "${local.project}-apim-subkey"
+  value        = azurerm_api_management_subscription.payment_release_notes[0].primary_key
+  key_vault_id = data.azurerm_key_vault.kv.id
 }
 
 resource "azurerm_api_management_subscription" "payment_release_notes" {

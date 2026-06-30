@@ -3,4 +3,6 @@ locals {
 
   kv_name                = "${local.project}-kv"
   kv_resource_group_name = "${local.project}-sec-rg"
+
+  expose_api = var.api_management_name != "" && var.api_management_rg != "" ? true : false
 }
