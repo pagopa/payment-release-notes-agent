@@ -54,12 +54,6 @@ variable "idh_storage_account_resource_tier" {
   description = "The IDH resource tier of storage account."
 }
 
-variable "sku_name" {
-  type        = string
-  description = "App Service Plan SKU for the release notes agent."
-  default     = "B1"
-}
-
 variable "vnet_name" {
   type        = string
   description = "Name of the existing VNet where the webapp outbound subnet lives."
@@ -86,12 +80,6 @@ variable "copilot_model" {
   type        = string
   description = "Model ID for the GitHub Copilot / Models API."
   default     = "openai/gpt-4.1"
-}
-
-variable "atlassian_url" {
-  type        = string
-  description = "Atlassian base URL (e.g. https://your-org.atlassian.net). Leave empty to disable."
-  default     = ""
 }
 
 
