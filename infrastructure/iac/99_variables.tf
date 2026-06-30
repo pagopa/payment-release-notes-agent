@@ -10,21 +10,20 @@ variable "env" {
   type = string
 }
 
-variable "env_short" {
-  type = string
-  validation {
-    condition     = length(var.env_short) <= 1
-    error_message = "Max length is 1 chars."
-  }
-}
-
 variable "location" {
   type = string
 }
 
 variable "location_short" {
-  type        = string
-  description = "Location short, e.g. itn, weu"
+  type = string
+  validation {
+    condition = (
+      length(var.location_short) == 3
+    )
+    error_message = "Length must be 3 chars."
+  }
+  description = "Location short for italy: itn"
+  default     = "itn"
 }
 
 variable "domain" {
@@ -150,7 +149,7 @@ variable "api_management_rg" {
   default     = ""
 }
 
-variable "api_manager_hostname" {
+variable "apim_hostname" {
   type        = string
   description = "Public gateway hostname of the APIM instance (used in the OpenAPI spec)."
   default     = ""
@@ -160,4 +159,17 @@ variable "api_path" {
   type        = string
   description = "Base path exposed on APIM for this service."
   default     = "payment-release-notes"
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# KV
+# ─────────────────────────────────────────────────────────────────────────────
+variable "kv_resource_group_name" {
+  type        = string
+  description = "Resource group of the existing Key Vault instance."
+}
+
+variable "kv_name" {
+  type        = string
+  description = "Name of the existing Key Vault instance."
 }

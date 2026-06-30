@@ -3,12 +3,12 @@ module "apim_api_payment_release_notes_v1" {
   source = "git::https://github.com/pagopa/terraform-azurerm-v4.git//api_management_api?ref=7787f9ec0d71db411ebab613d7731a4286210c30"
   count  = local.expose_api ? 1 : 0
 
-  name                = "${var.prefix}-payment-release-notes-api"
+  name                = "${var.prefix}-${local.tool_name}-api"
   api_management_name = var.api_management_name
   resource_group_name = var.api_management_rg
   api_version         = "v1"
 
-  product_ids = ["${var.prefix}-payment-release-notes-product"]
+  product_ids = ["${var.prefix}-${local.tool_name}-product"]
 
   display_name = "Payment Release Notes API"
   description  = "REST API for the Payment Release Notes Agent — async release notes generation from GitHub PRs"
@@ -20,8 +20,8 @@ module "apim_api_payment_release_notes_v1" {
 
   content_format = "openapi"
   content_value = templatefile("${path.module}/api/v1/_openapi.json.tpl", {
-    host     = var.api_manager_hostname
-    api_path = var.api_path
+    host     = var.apim_hostname
+    api_path = local.tool_name
   })
 
   xml_content = templatefile("${path.module}/api/v1/_base_policy.xml", {
@@ -38,7 +38,7 @@ module "apim_api_payment_release_notes_v1" {
 resource "azurerm_api_management_api_version_set" "payment_release_notes" {
   count = local.expose_api ? 1 : 0
 
-  name                = "${var.prefix}-payment-release-notes-version-set"
+  name                = "${var.prefix}-${local.tool_name}-version-set"
   resource_group_name = var.api_management_rg
   api_management_name = var.api_management_name
   display_name        = "Payment Release Notes API"
@@ -50,7 +50,7 @@ resource "azurerm_api_management_product" "payment_release_notes" {
 
   resource_group_name   = var.api_management_rg
   api_management_name   = var.api_management_name
-  product_id            = "${var.prefix}-payment-release-notes-product"
+  product_id            = "${var.prefix}-${local.tool_name}-product"
   display_name          = "Payment Release Notes"
   description           = "B2B API product for the Payment Release Notes Agent"
   subscription_required = true
@@ -64,7 +64,7 @@ resource "azurerm_api_management_subscription" "payment_release_notes" {
   resource_group_name = var.api_management_rg
   api_management_name = var.api_management_name
   product_id          = azurerm_api_management_product.payment_release_notes[0].id
-  display_name        = "${var.prefix}-payment-release-notes-subscription"
+  display_name        = "${var.prefix}-${local.tool_name}-subscription"
   state               = "active"
 }
 

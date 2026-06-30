@@ -58,6 +58,7 @@ module "webapp" {
   health_check_maxpingfailures = 10
 
   private_endpoint_dns_zone_id = data.azurerm_private_dns_zone.azurewebsite.id
+  allow_from_apim              = true
   allowed_subnet_ids           = var.allowed_subnet_ids
   allowed_service_tags         = ["AzureDevOps"]
 

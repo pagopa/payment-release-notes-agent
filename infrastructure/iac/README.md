@@ -40,8 +40,8 @@
 | <a name="input_allowed_subnet_ids"></a> [allowed\_subnet\_ids](#input\_allowed\_subnet\_ids) | n/a | `list(string)` | n/a | yes |
 | <a name="input_api_management_name"></a> [api\_management\_name](#input\_api\_management\_name) | Name of the existing APIM instance. Leave empty to skip APIM resources. | `string` | `""` | no |
 | <a name="input_api_management_rg"></a> [api\_management\_rg](#input\_api\_management\_rg) | Resource group of the existing APIM instance. | `string` | `""` | no |
-| <a name="input_api_manager_hostname"></a> [api\_manager\_hostname](#input\_api\_manager\_hostname) | Public gateway hostname of the APIM instance (used in the OpenAPI spec). | `string` | `""` | no |
 | <a name="input_api_path"></a> [api\_path](#input\_api\_path) | Base path exposed on APIM for this service. | `string` | `"payment-release-notes"` | no |
+| <a name="input_apim_hostname"></a> [apim\_hostname](#input\_apim\_hostname) | Public gateway hostname of the APIM instance (used in the OpenAPI spec). | `string` | `""` | no |
 | <a name="input_azure_website_dns_zone_name"></a> [azure\_website\_dns\_zone\_name](#input\_azure\_website\_dns\_zone\_name) | n/a | `string` | n/a | yes |
 | <a name="input_copilot_model"></a> [copilot\_model](#input\_copilot\_model) | Model ID for the GitHub Copilot / Models API. | `string` | `"openai/gpt-4.1"` | no |
 | <a name="input_department_name"></a> [department\_name](#input\_department\_name) | Department name printed in the release notes document. | `string` | n/a | yes |
@@ -49,14 +49,15 @@
 | <a name="input_document_language"></a> [document\_language](#input\_document\_language) | Language for the generated document. | `string` | `"Italian"` | no |
 | <a name="input_domain"></a> [domain](#input\_domain) | n/a | `string` | n/a | yes |
 | <a name="input_env"></a> [env](#input\_env) | n/a | `string` | n/a | yes |
-| <a name="input_env_short"></a> [env\_short](#input\_env\_short) | n/a | `string` | n/a | yes |
 | <a name="input_environments"></a> [environments](#input\_environments) | Comma-separated list of environments included in release notes. | `string` | `"dev,uat,prod"` | no |
 | <a name="input_idh_app_service_resource_tier"></a> [idh\_app\_service\_resource\_tier](#input\_idh\_app\_service\_resource\_tier) | The IDH resource tier of app services. | `string` | n/a | yes |
 | <a name="input_idh_storage_account_resource_tier"></a> [idh\_storage\_account\_resource\_tier](#input\_idh\_storage\_account\_resource\_tier) | The IDH resource tier of storage account. | `string` | n/a | yes |
 | <a name="input_internal_dns_zone_resource_group_name"></a> [internal\_dns\_zone\_resource\_group\_name](#input\_internal\_dns\_zone\_resource\_group\_name) | n/a | `string` | n/a | yes |
+| <a name="input_kv_name"></a> [kv\_name](#input\_kv\_name) | Name of the existing Key Vault instance. | `string` | n/a | yes |
+| <a name="input_kv_resource_group_name"></a> [kv\_resource\_group\_name](#input\_kv\_resource\_group\_name) | Resource group of the existing Key Vault instance. | `string` | n/a | yes |
 | <a name="input_llm_provider"></a> [llm\_provider](#input\_llm\_provider) | LLM provider: copilot \| openai \| anthropic | `string` | `"copilot"` | no |
 | <a name="input_location"></a> [location](#input\_location) | n/a | `string` | n/a | yes |
-| <a name="input_location_short"></a> [location\_short](#input\_location\_short) | Location short, e.g. itn, weu | `string` | n/a | yes |
+| <a name="input_location_short"></a> [location\_short](#input\_location\_short) | Location short for italy: itn | `string` | `"itn"` | no |
 | <a name="input_log_level"></a> [log\_level](#input\_log\_level) | Python log level: DEBUG \| INFO \| WARNING \| ERROR | `string` | `"INFO"` | no |
 | <a name="input_prefix"></a> [prefix](#input\_prefix) | n/a | `string` | n/a | yes |
 | <a name="input_private_dns_zone_blob_ids"></a> [private\_dns\_zone\_blob\_ids](#input\_private\_dns\_zone\_blob\_ids) | n/a | `list(string)` | n/a | yes |
