@@ -13,7 +13,7 @@ set -euo pipefail
 # Environment variables:
 #   BASE_URL             App Service base URL
 #                        (default: https://release-notes-agent-dwhhfya4cyh7hqap.italynorth-01.azurewebsites.net)
-#   API_KEY              Optional API key sent as x-api-key header (e.g. APIM subscription key)
+#   API_KEY              Optional APIM subscription key (sent as Ocp-Apim-Subscription-Key header)
 #   CONFLUENCE_SPACE     Confluence space key (e.g. PAYMCLOUD)
 #   CONFLUENCE_PARENT    Title or numeric ID of the parent page
 #   CONFLUENCE_TITLE     Title of the Confluence page to create
@@ -64,7 +64,7 @@ if [[ -z "$PLATFORM" || -z "$PR_NUMBER" ]]; then
   echo ""
   echo "Environment variables:"
   echo "  BASE_URL              App Service base URL"
-  echo "  API_KEY               Optional API key (x-api-key header)"
+  echo "  API_KEY               APIM subscription key (Ocp-Apim-Subscription-Key header)"
   echo "  CONFLUENCE_SPACE      Confluence space key (e.g. PAYMCLOUD)"
   echo "  CONFLUENCE_PARENT     Title or numeric ID of the parent page"
   echo "  CONFLUENCE_TITLE      Title of the Confluence page to create"
@@ -79,7 +79,7 @@ fi
 
 AUTH_HEADER=""
 if [[ -n "$API_KEY" ]]; then
-  AUTH_HEADER="-H \"x-api-key: ${API_KEY}\""
+  AUTH_HEADER="-H \"Ocp-Apim-Subscription-Key: ${API_KEY}\""
 fi
 
 # ── 1. Start job ──────────────────────────────────────────────────────────────
@@ -95,7 +95,7 @@ EXTRA_FIELDS=""
 CURL_ARGS=(-X POST "${BASE_URL}/api/generate"
   -H "Content-Type: application/json"
   -d "{\"platform\": \"${PLATFORM}\", \"pr_number\": ${PR_NUMBER}, \"version\": \"${VERSION}\"${EXTRA_FIELDS}}")
-[[ -n "$API_KEY" ]] && CURL_ARGS+=(-H "x-api-key: ${API_KEY}")
+[[ -n "$API_KEY" ]] && CURL_ARGS+=(-H "Ocp-Apim-Subscription-Key: ${API_KEY}")
 
 RESPONSE=$(curl "${CURL_ARGS[@]}" 2>/dev/null) || true
 
@@ -123,7 +123,7 @@ while [[ $ELAPSED -lt $MAX_WAIT ]]; do
   ELAPSED=$((ELAPSED + POLL_INTERVAL))
 
   STATUS_CURL_ARGS=(-sf "${BASE_URL}/api/status/${JOB_ID}")
-  [[ -n "$API_KEY" ]] && STATUS_CURL_ARGS+=(-H "x-api-key: ${API_KEY}")
+  [[ -n "$API_KEY" ]] && STATUS_CURL_ARGS+=(-H "Ocp-Apim-Subscription-Key: ${API_KEY}")
 
   STATUS_RESPONSE=$(curl "${STATUS_CURL_ARGS[@]}" || true)
   STATUS=$(echo "$STATUS_RESPONSE" | grep -o '"status": *"[^"]*"' | grep -o '"[^"]*"$' | tr -d '"' || true)

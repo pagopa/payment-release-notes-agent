@@ -160,10 +160,12 @@ The service runs as an **Azure App Service Web App for Containers** on a B1 dedi
 
 ```bash
 docker buildx build --platform linux/amd64 --target production \
-  -t ghcr.io/<owner>/release-notes-agent:<tag> --push .
+  -t ghcr.io/pagopa/payment-release-notes-agent:<tag> --push .
 ```
 
-The GitHub Actions workflow `.github/workflows/docker-build.yml` builds and pushes automatically on every PR and merge to `main`.
+The GitHub Actions workflows handle this automatically:
+- `.github/workflows/docker-build.yml` — builds and pushes on every PR (tagged `sha-*` and `pr-*`)
+- `.github/workflows/release.yml` — builds and pushes the versioned image (`vX.X.X`) on merge to `main`, then creates the GitHub Release and git tag
 
 ### App Service configuration
 
@@ -173,7 +175,7 @@ The GitHub Actions workflow `.github/workflows/docker-build.yml` builds and push
 | `GITHUB_TOKEN` | GitHub PAT |
 | `AzureWebJobsStorage` | Storage Account connection string |
 | `LLM_PROVIDER` | `copilot` |
-| `COPILOT_MODEL` | `openai/chatgpt-4.1` |
+| `COPILOT_MODEL` | `openai/gpt-4.1` |
 
 See [Environment Variables](#environment-variables) for the full list.
 
@@ -189,7 +191,7 @@ CONFLUENCE_PARENT=1590690001 \
 CONFLUENCE_TITLE="Deploy v1.2.0" \
 ./generate_release.sh pagopa/pagopa-infra 3924 1.2.0 PROJ-123
 
-# With custom API key (e.g. APIM subscription key)
+# With APIM subscription key
 API_KEY=xxx ./generate_release.sh pagopa/pagopa-infra 3924 1.2.0
 ```
 
