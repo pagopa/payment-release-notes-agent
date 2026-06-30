@@ -195,11 +195,6 @@
             "type": "string",
             "description": "Pre-signed Azure Blob URL to download the PDF — present only when status=completed, expires in 1 hour"
           },
-          "confluence_url": {
-            "type": "string",
-            "nullable": true,
-            "description": "URL of the Confluence page (placeholder while pending, full content when completed)"
-          },
           "error": {
             "type": "string",
             "description": "Error detail — present only when status=failed"

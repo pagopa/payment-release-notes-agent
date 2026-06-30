@@ -72,7 +72,7 @@ class ConfluenceExporter:
         links = result.get("_links", {})
         base = links.get("base") or (self.base_url.rstrip("/") + "/wiki")
         page_url = base.rstrip("/") + links.get("webui", "")
-        logger.info("Confluence: pagina creata/aggiornata → %s", page_url)
+        logger.info("Confluence: page created/updated → %s", page_url)
         return page_url
 
     def _resolve_parent_id(self, space: str, parent_page: Optional[str]) -> Optional[str]:
@@ -85,7 +85,7 @@ class ConfluenceExporter:
         page = self.confluence.get_page_by_title(space=space, title=parent_page)
         if page:
             return page["id"]
-        logger.warning("Pagina padre '%s' non trovata nello spazio %s — creo in radice", parent_page, space)
+        logger.warning("Parent page '%s' not found in space %s — creating at root", parent_page, space)
         return None
 
     # ── Body builder ──────────────────────────────────────────────────────────

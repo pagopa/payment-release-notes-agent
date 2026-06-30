@@ -98,13 +98,12 @@ def enqueue_generate(body: dict):
                     placeholder=True,
                 )
                 placeholder_created = True
-                _upload_blob(conn_str, f"{job_id}.confluence", confluence_page_url.encode())
-                logger.info("Confluence placeholder creato sincronamente → %s", confluence_page_url)
+                logger.info("Confluence placeholder created synchronously → %s", confluence_page_url)
             else:
-                logger.warning("confluence_space fornito ma ATLASSIAN_URL/USER/TOKEN mancanti — placeholder saltato")
+                logger.warning("confluence_space provided but ATLASSIAN_URL/USER/TOKEN missing — placeholder skipped")
         except Exception as exc:
             # Fallback: il worker creerà e aggiornerà la pagina in modo asincrono
-            logger.exception("Creazione sincrona del placeholder Confluence fallita: %s", exc)
+            logger.exception("Synchronous Confluence placeholder creation failed: %s", exc)
             agent = release_notes = gh_context = None
             placeholder_created = False
 
@@ -144,18 +143,9 @@ def get_status(job_id: str):
     blob_service = BlobServiceClient.from_connection_string(conn_str)
     container    = blob_service.get_container_client(BLOB_CONTAINER)
 
-    # URL della pagina Confluence (placeholder o definitiva), se disponibile
-    confluence_url = None
-    if _blob_exists(container, f"{job_id}.confluence"):
-        try:
-            confluence_url = container.get_blob_client(f"{job_id}.confluence") \
-                .download_blob().readall().decode()
-        except Exception:
-            confluence_url = None
-
     if _blob_exists(container, f"{job_id}.error"):
         error_text = container.get_blob_client(f"{job_id}.error").download_blob().readall().decode()
-        return {"job_id": job_id, "status": "failed", "error": error_text, "confluence_url": confluence_url}
+        return {"job_id": job_id, "status": "failed", "error": error_text}
 
     if _blob_exists(container, f"{job_id}.pdf"):
         sas = generate_blob_sas(
@@ -170,9 +160,9 @@ def get_status(job_id: str):
             f"https://{blob_service.account_name}.blob.core.windows.net"
             f"/{BLOB_CONTAINER}/{job_id}.pdf?{sas}"
         )
-        return {"job_id": job_id, "status": "completed", "download_url": url, "confluence_url": confluence_url}
+        return {"job_id": job_id, "status": "completed", "download_url": url}
 
-    return {"job_id": job_id, "status": "pending", "confluence_url": confluence_url}
+    return {"job_id": job_id, "status": "pending"}
 
 
 # ── Worker ────────────────────────────────────────────────────────────────────
@@ -265,12 +255,11 @@ def _do_generate(
                         placeholder=True,
                     )
                     confluence_ctx["page_url"] = page_url
-                    _upload_blob(conn_str, f"{job_id}.confluence", page_url.encode())
                     _log(job_id, "Confluence placeholder ready → %s", page_url, conn_str=conn_str)
                 else:
                     _log(job_id, "Confluence placeholder already created synchronously — will update", conn_str=conn_str)
             elif confluence_space:
-                logger.warning("[job:%s] confluence_space fornito ma ATLASSIAN_URL/USER/TOKEN mancanti", job_id)
+                logger.warning("[job:%s] confluence_space provided but ATLASSIAN_URL/USER/TOKEN missing", job_id)
 
             # ── Arricchimento LLM ──────────────────────────────────────────────
             _log(job_id, "enriching release notes (LLM)...", conn_str=conn_str)
@@ -300,7 +289,7 @@ def _do_generate(
                 )
                 _log(job_id, "JIRA done", conn_str=conn_str)
             elif jira_issue_key:
-                logger.warning("[job:%s] jira_issue_key fornito ma ATLASSIAN_URL/USER/TOKEN mancanti", job_id)
+                logger.warning("[job:%s] jira_issue_key provided but ATLASSIAN_URL/USER/TOKEN missing", job_id)
 
             # ── Aggiorna la pagina Confluence col contenuto completo ───────────
             if confluence_ctx["exporter"]:
@@ -312,7 +301,6 @@ def _do_generate(
                     page_title=confluence_ctx["page_title"],
                 )
                 confluence_ctx["page_url"] = page_url
-                _upload_blob(conn_str, f"{job_id}.confluence", page_url.encode())
                 _log(job_id, "Confluence done → %s", page_url, conn_str=conn_str)
 
         _delete_blob(conn_str, f"{job_id}.pending")
@@ -334,9 +322,9 @@ def _do_generate(
                     page_title=confluence_ctx["page_title"],
                     error_message=str(exc),
                 )
-                logger.info("[job:%s] Confluence page aggiornata con nota di errore", job_id)
+                logger.info("[job:%s] Confluence page updated with error note", job_id)
             except Exception as conf_exc:
-                logger.error("[job:%s] impossibile aggiornare la pagina Confluence con l'errore: %s",
+                logger.error("[job:%s] failed to update Confluence page with error: %s",
                              job_id, conf_exc)
 
         for attempt in range(3):
