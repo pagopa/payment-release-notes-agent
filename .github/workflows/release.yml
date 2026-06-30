@@ -9,19 +9,20 @@ on:
       - "requirements.txt"
       - "cicd_contexts/**"
       - "Dockerfile"
-      - "infrastructure/local_server.py"
+      - "infrastructure/**"
 
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
-  release:
-    name: Compute version & release
+  versioning:
+    name: Compute version, tag & release
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      packages: write
+    outputs:
+      tag: ${{ steps.semver.outputs.tag }}
 
     steps:
       - name: Checkout
@@ -67,31 +68,6 @@ jobs:
           echo "Bump: $BUMP → $TAG"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Log in to GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Build and push release image
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          target: production
-          push: true
-          tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.semver.outputs.tag }}
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
-          labels: |
-            org.opencontainers.image.version=${{ steps.semver.outputs.tag }}
-            org.opencontainers.image.revision=${{ github.sha }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
       - name: Create git tag
         run: |
           git config user.name  "github-actions[bot]"
@@ -114,3 +90,45 @@ jobs:
           EOF
           )" \
             --latest
+
+  docker:
+    name: Build & push Docker image
+    runs-on: ubuntu-latest
+    needs: versioning
+    permissions:
+      packages: write
+    if: |
+      contains(toJson(github.event.commits), '"src/') ||
+      contains(toJson(github.event.commits), '"requirements.txt') ||
+      contains(toJson(github.event.commits), '"cicd_contexts/') ||
+      contains(toJson(github.event.commits), '"Dockerfile') ||
+      contains(toJson(github.event.commits), '"infrastructure/local_server.py')
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push release image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          target: production
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.versioning.outputs.tag }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+          labels: |
+            org.opencontainers.image.version=${{ needs.versioning.outputs.tag }}
+            org.opencontainers.image.revision=${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
