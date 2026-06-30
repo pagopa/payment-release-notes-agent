@@ -17,14 +17,14 @@ env:
 
 jobs:
   release:
-    name: Compute version, tag & release
+    name: Compute version & release
     runs-on: ubuntu-latest
     permissions:
       contents: write
       packages: write
 
     steps:
-      - name: Checkout (full history for tags)
+      - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -42,7 +42,6 @@ jobs:
       - name: Compute next semantic version
         id: semver
         run: |
-          # Latest tag (default 0.0.0 if none)
           LATEST=$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' | sort -V | tail -1)
           LATEST=${LATEST:-v0.0.0}
           echo "Latest tag: $LATEST"
@@ -53,7 +52,6 @@ jobs:
 
           TITLE="${{ steps.pr.outputs.title }}"
 
-          # Determine bump from conventional commit type
           if echo "$TITLE" | grep -qiE '(BREAKING CHANGE|^[a-z]+(\([^)]+\))?!:)'; then
             MAJOR=$((MAJOR + 1)); MINOR=0; PATCH=0
             BUMP=major
@@ -65,10 +63,9 @@ jobs:
             BUMP=patch
           fi
 
-          VERSION="${MAJOR}.${MINOR}.${PATCH}"
-          echo "Bump: $BUMP → v$VERSION"
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "tag=v$VERSION"    >> "$GITHUB_OUTPUT"
+          TAG="v${MAJOR}.${MINOR}.${PATCH}"
+          echo "Bump: $BUMP → $TAG"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
