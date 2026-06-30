@@ -66,6 +66,7 @@ resource "azurerm_api_management_subscription" "payment_release_notes" {
   product_id          = azurerm_api_management_product.payment_release_notes[0].id
   display_name        = "${var.prefix}-${local.tool_name}-subscription"
   state               = "active"
+  allow_tracing       = true
 }
 
 resource "azurerm_key_vault_secret" "apim_subscription_key" {
