@@ -57,3 +57,21 @@ resource "azurerm_api_management_product" "payment_release_notes" {
   approval_required     = false
   published             = true
 }
+
+resource "azurerm_api_management_subscription" "payment_release_notes" {
+  count = var.api_management_name != "" && var.api_management_rg != "" ? 1 : 0
+
+  resource_group_name = var.api_management_rg
+  api_management_name = var.api_management_name
+  product_id          = azurerm_api_management_product.payment_release_notes[0].id
+  display_name        = "${var.prefix}-payment-release-notes-subscription"
+  state               = "active"
+}
+
+resource "azurerm_key_vault_secret" "apim_subscription_key" {
+  count = var.api_management_name != "" && var.api_management_rg != "" ? 1 : 0
+
+  name         = "${local.project}-apim-subkey"
+  value        = azurerm_api_management_subscription.payment_release_notes[0].primary_key
+  key_vault_id = data.azurerm_key_vault.kv.id
+}
