@@ -25,9 +25,9 @@ module "webapp" {
   name                  = "${local.project}-app"
   app_service_plan_name = "${local.project}-plan"
 
-  docker_image        = "ghcr.io/pagopa/payment-release-notes-agent"
+  docker_image        = "pagopa/payment-release-notes-agent"
   docker_image_tag    = var.docker_image_tag
-  docker_registry_url = "https://ghcr.io"
+  docker_registry_url = "ghcr.io"
 
   # Runtime
   always_on                    = false
