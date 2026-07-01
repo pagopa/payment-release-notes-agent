@@ -11,7 +11,7 @@ module "apim_api_payment_release_notes_v1" {
   product_ids = ["${var.prefix}-${local.tool_name}-product"]
 
   display_name = "Payment Release Notes API"
-  description  = "REST API for the Payment Release Notes Agent — async release notes generation from GitHub PRs"
+  description  = "Async release notes generation from GitHub Pull Requests"
 
   path      = var.api_path
   protocols = ["https"]
@@ -66,7 +66,7 @@ resource "azurerm_api_management_subscription" "payment_release_notes" {
   product_id          = azurerm_api_management_product.payment_release_notes[0].id
   display_name        = "${var.prefix}-${local.tool_name}-subscription"
   state               = "active"
-  allow_tracing       = true
+  allow_tracing       = false
 }
 
 resource "azurerm_key_vault_secret" "apim_subscription_key" {
