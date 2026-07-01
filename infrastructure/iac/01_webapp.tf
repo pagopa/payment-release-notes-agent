@@ -27,7 +27,7 @@ module "webapp" {
 
   docker_image        = "pagopa/payment-release-notes-agent"
   docker_image_tag    = var.docker_image_tag
-  docker_registry_url = "ghcr.io"
+  docker_registry_url = "https://ghcr.io"
 
   # Runtime
   always_on                    = false
