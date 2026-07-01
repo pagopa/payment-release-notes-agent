@@ -87,7 +87,6 @@ ATLASSIAN_TOKEN=<token from id.atlassian.com/manage-profile/security/api-tokens>
 
 # Document
 ENVIRONMENTS=dev,uat,prod
-RESPONSIBLE_TEAM=Team Infrastructure
 DOCUMENT_LANGUAGE=Italian
 DEPARTMENT_NAME=Payments Department
 ```
@@ -223,7 +222,6 @@ The completed PDF is available via SAS URL for 1 hour.
 | `ATLASSIAN_USER` | — | Atlassian account email |
 | `ATLASSIAN_TOKEN` | — | Atlassian API token |
 | `ENVIRONMENTS` | `dev,uat,prod` | Deployment environments |
-| `RESPONSIBLE_TEAM` | `Team Infrastructure` | Team name in deployment steps |
 | `DOCUMENT_LANGUAGE` | `Italian` | Language for generated content |
 | `DEPARTMENT_NAME` | — | Department name in the PDF header |
 | `STALE_JOB_MINUTES` | `20` | Minutes before a pending job is marked as failed |

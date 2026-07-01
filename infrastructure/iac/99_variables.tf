@@ -88,11 +88,6 @@ variable "environments" {
   default     = "dev,uat,prod"
 }
 
-variable "responsible_team" {
-  type        = string
-  description = "Team name printed in the release notes document."
-}
-
 variable "document_language" {
   type        = string
   description = "Language for the generated document."

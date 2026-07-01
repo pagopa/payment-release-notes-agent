@@ -394,11 +394,17 @@ Return this JSON structure:
         overview: dict,
         files: list,
         environments: List[str],
-        responsible_team: str,
+        owners: List[str],
     ) -> dict:
-        """Return prerequisites, deployment_steps_by_env, rollback_plan_items, rollback_note."""
+        """Return prerequisites, deployment_steps_by_env, rollback_plan_items, rollback_note.
+
+        *owners* are the GitHub handles/teams resolved from the repository's
+        CODEOWNERS for the files touched by this PR (see codeowners.py). May
+        be empty if the repo has no CODEOWNERS or none of its rules matched.
+        """
         lang = self.language
         envs = ", ".join(environments)
+        owners_line = ", ".join(owners) if owners else "none found in CODEOWNERS for these files"
         cicd_block = f"\n--- CI/CD CONTEXT ---\n{self.cicd_context}\n" if self.cicd_context else ""
         prompt = f"""You are a senior DevOps engineer.
 Language of the output: {lang}.
@@ -411,7 +417,7 @@ Repository: {pr_details.get('repo_full_name', 'N/A')}
 PR: #{pr_details.get('number')} — {pr_details.get('title')}
 Author: {pr_details.get('author')}
 Environments to cover: {envs}
-Responsible team: {responsible_team}
+Responsible owners (resolved from CODEOWNERS for the files touched by this PR): {owners_line}
 Domain: {overview.get('domain', 'N/A')}
 User impact: {overview.get('user_impact', 'N/A')}
 
@@ -426,13 +432,13 @@ Return this JSON structure (only include environments that are actually affected
   ],
   "deployment_steps": {{
     "dev": [
-      {{"order": 1, "action": "Step description", "responsible": "Team or person", "notes": "Optional notes"}}
+      {{"order": 1, "action": "Step description", "responsible": "one of the CODEOWNERS owners above if any, otherwise a sensible placeholder", "notes": "Optional notes"}}
     ],
     "uat": [...],
     "prod": [...]
   }},
   "rollback_steps": [
-    {{"order": 1, "action": "Rollback action", "environment": "dev/uat/prod/main", "responsible": "Team or person", "notes": ""}}
+    {{"order": 1, "action": "Rollback action", "environment": "dev/uat/prod/main", "responsible": "one of the CODEOWNERS owners above if any, otherwise a sensible placeholder", "notes": ""}}
   ],
   "rollback_note": "One sentence note on rollback impact (e.g. no existing resources modified)"
 }}"""
