@@ -71,6 +71,10 @@ class DocumentGenerator:
         if self._explicit_context_file:
             content = self._read_file(self._explicit_context_file)
             if content:
+                logger.info(
+                    f"CI/CD context REUSED for '{repo_full_name}' "
+                    f"(explicit override file: {self._explicit_context_file})"
+                )
                 self.cicd_context = content
                 return True
 
@@ -80,12 +84,15 @@ class DocumentGenerator:
             repo_path = os.path.join(self.CONTEXTS_DIR, f"{slug}.md")
             content = self._read_file(repo_path)
             if content:
-                logger.info(f"Using repo-specific CI/CD context: {repo_path}")
+                logger.info(
+                    f"CI/CD context REUSED for '{repo_full_name}' "
+                    f"(existing .md file: {repo_path})"
+                )
                 self.cicd_context = content
                 return True
 
         logger.warning(
-            f"No CI/CD context file found for repository '{repo_full_name}' — "
+            f"No CI/CD context .md file found for repository '{repo_full_name}' — "
             f"will be generated at runtime before enrichment."
         )
         self.cicd_context = ""
@@ -95,9 +102,28 @@ class DocumentGenerator:
         """If no CI/CD context is currently loaded, generate one at runtime via
         RepoAnalyzer and persist it to CONTEXTS_DIR/<owner>_<repo>.md so it is
         reused for subsequent invocations (until the process/container restarts).
+
+        A file already present under CONTEXTS_DIR — whether baked into the
+        Docker image at build time, or written by an earlier invocation in
+        this same container's lifetime — must NEVER be overwritten. This is
+        re-checked here (not just relied upon via load_context_for_repo()) and
+        enforced atomically at write time, so it holds even under concurrent
+        requests for the same new repository.
         """
         if self.cicd_context or not repo_full_name:
             return
+
+        slug = repo_full_name.replace("/", "_")
+        os.makedirs(self.CONTEXTS_DIR, exist_ok=True)
+        path = os.path.join(self.CONTEXTS_DIR, f"{slug}.md")
+
+        # Defensive re-check: do NOT generate if the file already exists.
+        existing = self._read_file(path)
+        if existing:
+            logger.info(f"CI/CD context REUSED for '{repo_full_name}' (existing .md file: {path})")
+            self.cicd_context = existing
+            return
+
         if not self._github_token:
             logger.warning("Cannot auto-generate CI/CD context: no GitHub token configured")
             return
@@ -116,12 +142,22 @@ class DocumentGenerator:
             # persist a placeholder — retry from scratch on the next invocation.
             return
 
-        slug = repo_full_name.replace("/", "_")
-        os.makedirs(self.CONTEXTS_DIR, exist_ok=True)
-        path = os.path.join(self.CONTEXTS_DIR, f"{slug}.md")
-        with open(path, "w", encoding="utf-8") as f:
+        # Atomic exclusive create: guarantees we can NEVER clobber a file that
+        # already exists, even if another request raced us here in between
+        # the check above and this write.
+        try:
+            fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError:
+            logger.info(f"CI/CD context REUSED for '{repo_full_name}' (existing .md file written concurrently: {path})")
+            self.cicd_context = self._read_file(path)
+            return
+
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
             f.write(context)
-        logger.info(f"Generated and cached CI/CD context: {path}")
+        logger.info(
+            f"CI/CD context CREATED for '{repo_full_name}' "
+            f"(generated via RepoAnalyzer, saved to new .md file: {path})"
+        )
         self.cicd_context = context
 
     @staticmethod
