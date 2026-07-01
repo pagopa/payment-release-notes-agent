@@ -111,6 +111,11 @@ class DocumentGenerator:
             logger.exception(f"Failed to auto-generate CI/CD context for {repo_full_name}")
             return
 
+        if not context:
+            # RepoAnalyzer already logged why (e.g. empty LLM response). Do not
+            # persist a placeholder — retry from scratch on the next invocation.
+            return
+
         slug = repo_full_name.replace("/", "_")
         os.makedirs(self.CONTEXTS_DIR, exist_ok=True)
         path = os.path.join(self.CONTEXTS_DIR, f"{slug}.md")
