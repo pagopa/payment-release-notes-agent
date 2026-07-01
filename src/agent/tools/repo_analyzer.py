@@ -2,7 +2,6 @@
 a cicd_context.md via LLM."""
 
 import logging
-import os
 import re
 from typing import Optional
 from github import Github, GithubException
@@ -18,12 +17,11 @@ _TOTAL_MAX_CHARS = 40000
 _CANDIDATE_FILES = [
     "README.md",
     "CODEOWNERS",
-    ".terraform-version",
+    "release_deploy.yml",
     "Makefile",
     "Dockerfile",
     "docker-compose.yml",
-    "docker-compose.yaml",
-    ".releaserc.json",
+    ".terraform-version",
 ]
 
 _CANDIDATE_DIRS = [
@@ -34,8 +32,6 @@ _CANDIDATE_DIRS = [
     "deploy",
     "deployment",
     "ci",
-    ".circleci",
-    "Jenkinsfile",
 ]
 
 
@@ -55,16 +51,21 @@ class RepoAnalyzer:
 
     # ── Public entry point ────────────────────────────────────────────────────
 
-    def analyze(self, repo_url: str) -> tuple[str, str]:
+    def analyze(self, repo_url: str) -> tuple[str, Optional[str]]:
         """Analyze *repo_url* and return (repo_full_name, context_markdown).
 
-        The returned markdown is ready to be saved as cicd_context.md.
+        context_markdown is None if the repository is inaccessible or the LLM
+        failed to produce a context — callers must not persist a None result.
         """
         owner, repo_name = self._parse_repo_url(repo_url)
         repo_full_name = f"{owner}/{repo_name}"
         logger.info(f"Analyzing repo: {repo_full_name}")
 
-        repo = self.gh.get_repo(repo_full_name)
+        try:
+            repo = self.gh.get_repo(repo_full_name)
+        except GithubException as e:
+            raise ValueError(f"Cannot access repository '{repo_full_name}': {e}") from e
+
         content_map = self._fetch_content(repo)
 
         logger.info(f"Fetched {len(content_map)} files/dirs ({sum(len(v) for v in content_map.values())} chars total)")
@@ -158,26 +159,34 @@ class RepoAnalyzer:
 
     # ── LLM synthesis ─────────────────────────────────────────────────────────
 
-    def _generate_context(self, repo_full_name: str, content_map: dict) -> str:
+    def _generate_context(self, repo_full_name: str, content_map: dict) -> Optional[str]:
         files_block = "\n\n".join(
             f"### {path}\n{content}" for path, content in content_map.items()
         )
 
-        prompt = f"""You are a senior DevOps engineer. Analyse the files below from the GitHub repository
-`{repo_full_name}` and write a comprehensive CI/CD context document in Markdown.
+        prompt = f"""You are a senior DevOps engineer at PagoPA, the company running Italy's national digital payments platform.
+Analyse the files below from the GitHub repository `{repo_full_name}` and write a comprehensive CI/CD context document in Markdown.
 
 The document will be used to generate accurate release and deployment documentation for every PR in this repo.
-Write it in English. Be specific — use actual file names, script names, environment names, tool names found in the files.
+Be specific — use actual file names, script names, environment names, tool names found in the files.
+
+--- PAGOPA TECHNOLOGY CONTEXT (use to interpret the files; do NOT assume any of it applies unless the files support it) ---
+- Cloud-native only: application workloads are deployed to Azure Kubernetes Service (AKS). There is NO on-premise deployment.
+- The ONLY allowed CI/CD tools are GitHub Actions (.github/workflows) and Azure DevOps Pipelines (.devops, azure-pipelines*.yml).
+- Infrastructure is managed entirely with Terraform (HCL): expect .tf files, tfvars per environment, remote state on Azure Storage, and plan/apply pipelines.
+- API deployment can happen either via GitHub Actions or from within the infrastructure repositories (e.g. an APIM/API definition applied by a Terraform module).
+- Expected languages and technologies: Java, Scala, TypeScript, JavaScript, HCL (Terraform), Python and Bash. Identify which of these the repo actually uses.
+- Common Azure building blocks: AKS, Azure API Management (APIM), Azure Storage, Application Insights / Azure Monitor.
 
 Cover these sections (use the same headers):
-1. **Stack / Project structure** — how the repo is organised (monorepo, microservices, single stack, etc.)
-2. **Deployment scripts** — .sh scripts, Makefile, real commands with usage examples
-3. **CI/CD pipelines** — tool (GitHub Actions / Azure DevOps / Jenkins / etc.), triggers, stages (plan/apply/deploy)
-4. **Environment management** — environment names, how they are separated (tfvars, workspace, branch, directory)
-5. **Naming conventions** — patterns for resources, variables, files
-6. **Post-deploy monitoring** — tools (Application Insights, Datadog, Grafana, CloudWatch, etc.)
-7. **Approvals and branch protection** — CODEOWNERS, required reviewers, merge rules
-8. **Release process** — from merge to production deploy, manual/automatic steps
+1. **Stack / Project structure** — repo type (application vs infrastructure, monorepo vs single stack) and which of the PagoPA languages/technologies above it actually uses
+2. **Deployment scripts** — .sh scripts, Makefile, terraform wrapper scripts (e.g. terraform.sh), real commands with usage examples
+3. **CI/CD pipelines** — GitHub Actions and/or Azure DevOps only: workflow/pipeline file names, triggers, and stages (terraform plan/apply, build & push image, AKS deploy)
+4. **Environment management** — environment names (e.g. dev/uat/prod, weu-dev/weu-uat/weu-prod) and how they are separated (tfvars, workspace, branch, directory)
+5. **Naming conventions** — patterns for Azure resources, Terraform variables/modules, files
+6. **Post-deploy monitoring** — tools actually referenced (Application Insights, Azure Monitor, Grafana, etc.)
+7. **Approvals and branch protection** — CODEOWNERS, required reviewers, environment approvals, merge rules
+8. **Release process** — from merge to production deploy, including whether AKS rollout / Terraform apply is manual or automatic
 
 If a section is not inferable from the files, write a brief note saying so rather than inventing details.
 
@@ -189,6 +198,9 @@ Write ONLY the markdown document, no preamble."""
         logger.info("Generating CI/CD context via LLM...")
         result = self.doc_gen._call_llm(prompt, max_tokens=6000)
         if not result:
-            logger.warning("LLM returned empty response, using minimal fallback")
-            return f"# CI/CD Context — {repo_full_name}\n\nContesto non disponibile. Aggiornare manualmente questo file.\n"
+            logger.warning(
+                f"CI/CD context not generated for '{repo_full_name}': the LLM returned no "
+                f"response. No file will be saved — will retry on the next invocation."
+            )
+            return None
         return result
