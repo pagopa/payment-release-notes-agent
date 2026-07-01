@@ -28,6 +28,7 @@ class EnhancedReleaseNotesAgent:
             llm_config=config.llm,
             language=config.llm.document_language,
             cicd_context_file=config.llm.cicd_context_file,
+            github_token=config.github.token,
         )
         self.pdf_exporter = EnhancedPDFExporter()
 
@@ -83,6 +84,11 @@ class EnhancedReleaseNotesAgent:
         pr_details = context["pr_details"]
         commits = context["commits"]
         files = context["files"]
+
+        # Generate (and cache to disk) the CI/CD context here if it wasn't found
+        # on disk during prepare_release_notes — this runs in the async worker,
+        # after the Confluence placeholder URL has already been returned.
+        self.document_generator.ensure_context_generated(release_notes.repo_full_name)
 
         environments = [e.strip() for e in config.llm.environments.split(",") if e.strip()]
 

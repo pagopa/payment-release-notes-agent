@@ -48,29 +48,31 @@ class DocumentGenerator:
 
     CONTEXTS_DIR = "./cicd_contexts"
 
-    def __init__(self, llm_config, language: str = "Italian", cicd_context_file: str = ""):
+    def __init__(self, llm_config, language: str = "Italian", cicd_context_file: str = "", github_token: str = ""):
         self.llm_config = llm_config
         self.language = language
         self._explicit_context_file = cicd_context_file
+        self._github_token = github_token
         self.cicd_context = ""        # populated lazily via load_context_for_repo()
         self.llm = self._initialize_llm()
 
-    def load_context_for_repo(self, repo_full_name: str) -> None:
+    def load_context_for_repo(self, repo_full_name: str) -> bool:
         """Resolve and load the CI/CD context for *repo_full_name*.
 
         Resolution order:
         1. Explicit CICD_CONTEXT_FILE env var / config value (if set and exists)
         2. cicd_contexts/<owner>_<repo>.md
 
-        Raises ValueError if no context file is found — unsupported repositories
-        must not fall back to a generic context.
+        Returns True if a context was found and loaded, False otherwise. When
+        False, self.cicd_context is left empty — call ensure_context_generated()
+        to generate and persist one at runtime via RepoAnalyzer.
         """
         # 1. Explicit override
         if self._explicit_context_file:
             content = self._read_file(self._explicit_context_file)
             if content:
                 self.cicd_context = content
-                return
+                return True
 
         # 2. Repo-specific file
         if repo_full_name:
@@ -80,12 +82,42 @@ class DocumentGenerator:
             if content:
                 logger.info(f"Using repo-specific CI/CD context: {repo_path}")
                 self.cicd_context = content
-                return
+                return True
 
-        raise ValueError(
-            f"No CI/CD context file found for repository '{repo_full_name}'. "
-            f"Add cicd_contexts/{repo_full_name.replace('/', '_')}.md to support this repository."
+        logger.warning(
+            f"No CI/CD context file found for repository '{repo_full_name}' — "
+            f"will be generated at runtime before enrichment."
         )
+        self.cicd_context = ""
+        return False
+
+    def ensure_context_generated(self, repo_full_name: str) -> None:
+        """If no CI/CD context is currently loaded, generate one at runtime via
+        RepoAnalyzer and persist it to CONTEXTS_DIR/<owner>_<repo>.md so it is
+        reused for subsequent invocations (until the process/container restarts).
+        """
+        if self.cicd_context or not repo_full_name:
+            return
+        if not self._github_token:
+            logger.warning("Cannot auto-generate CI/CD context: no GitHub token configured")
+            return
+
+        from src.agent.tools.repo_analyzer import RepoAnalyzer
+
+        try:
+            analyzer = RepoAnalyzer(self._github_token, self)
+            _, context = analyzer.analyze(repo_full_name)
+        except Exception:
+            logger.exception(f"Failed to auto-generate CI/CD context for {repo_full_name}")
+            return
+
+        slug = repo_full_name.replace("/", "_")
+        os.makedirs(self.CONTEXTS_DIR, exist_ok=True)
+        path = os.path.join(self.CONTEXTS_DIR, f"{slug}.md")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(context)
+        logger.info(f"Generated and cached CI/CD context: {path}")
+        self.cicd_context = context
 
     @staticmethod
     def _read_file(path: str) -> str:
