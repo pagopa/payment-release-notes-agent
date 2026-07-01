@@ -31,9 +31,8 @@ class EnhancedReleaseNotesAgent:
         )
         self.pdf_exporter = EnhancedPDFExporter()
 
-    def generate_and_export(self, pr_url: str, version: str) -> dict:
-        """Generate complete release documentation and export to PDF + JSON."""
-        logger.info(f"Starting enhanced release notes generation for {pr_url}")
+    def prepare_release_notes(self, pr_url: str, version: str) -> tuple:
+        logger.info(f"Preparing release notes (GitHub data) for {pr_url}")
 
         owner, repo, pr_number = self.github_tools.extract_repo_and_pr_from_url(pr_url)
 
@@ -76,6 +75,15 @@ class EnhancedReleaseNotesAgent:
         release_notes.additions = pr_details.get("additions", 0)
         release_notes.deletions = pr_details.get("deletions", 0)
 
+        context = {"pr_details": pr_details, "commits": commits, "files": files}
+        return release_notes, context
+
+    def enrich_release_notes(self, release_notes: ReleaseNotes, context: dict) -> ReleaseNotes:
+        """Phase 2 — enrich the ReleaseNotes with all LLM-generated sections."""
+        pr_details = context["pr_details"]
+        commits = context["commits"]
+        files = context["files"]
+
         environments = [e.strip() for e in config.llm.environments.split(",") if e.strip()]
 
         # ── LLM: overview ─────────────────────────────────────────────────────
@@ -113,7 +121,10 @@ class EnhancedReleaseNotesAgent:
         release_notes.post_deploy_health_checks = verify.get("health_checks", [])
         release_notes.monitoring_notes = verify.get("monitoring_notes", "")
 
-        # ── Export ────────────────────────────────────────────────────────────
+        return release_notes
+
+    def export_release_notes(self, release_notes: ReleaseNotes) -> dict:
+        """Phase 3 — export the (enriched) ReleaseNotes to PDF + JSON."""
         logger.info("Exporting to PDF...")
         pdf_path = self.pdf_exporter.export(release_notes, config.pdf.output_path)
 
@@ -127,6 +138,13 @@ class EnhancedReleaseNotesAgent:
             "json": json_path,
             "release_notes": release_notes,
         }
+
+    def generate_and_export(self, pr_url: str, version: str) -> dict:
+
+        logger.info(f"Starting enhanced release notes generation for {pr_url}")
+        release_notes, context = self.prepare_release_notes(pr_url, version)
+        self.enrich_release_notes(release_notes, context)
+        return self.export_release_notes(release_notes)
 
     def process_pr_url(self, pr_url: str, version: Optional[str] = None) -> ReleaseNotes:
         result = self.generate_and_export(pr_url, version or config.release.version)

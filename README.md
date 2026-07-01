@@ -18,20 +18,17 @@ release-notes-agent/
 ├── src/
 │   ├── agent/
 │   │   ├── enhanced_release_notes_agent.py   # Main orchestrator
-│   │   ├── release_notes_agent.py            # Base agent (simple PDF only)
 │   │   ├── tools/
 │   │   │   ├── github_tools.py               # Fetch PR data from GitHub API
 │   │   │   ├── analysis_tools.py             # LLM-based change categorisation
 │   │   │   ├── document_generator.py         # LLM section generation
-│   │   │   └── repo_analyzer.py              # Repo analysis to generate cicd_context
+│   │   │   └── risk_analyzer.py              # Risk assessment
 │   │   └── exporters/
 │   │       ├── enhanced_pdf_exporter.py      # Structured PDF (ReportLab)
 │   │       ├── confluence_exporter.py        # Confluence Storage Format page
-│   │       ├── jira_exporter.py              # Attachment + comment on JIRA ticket
-│   │       └── pdf_exporter.py              # Base PDF (used by base agent)
+│   │       └── jira_exporter.py              # Attachment + comment on JIRA ticket
 │   ├── models/release_notes.py               # Core data model
-│   ├── config.py                             # Configuration from env vars
-│   └── cli.py                               # CLI (click)
+│   └── config.py                             # Configuration from env vars
 ├── infrastructure/
 │   └── local_server.py                       # FastAPI server — local dev and production
 ├── cicd_contexts/                            # CI/CD context files for supported repositories
@@ -59,12 +56,6 @@ A context file should cover:
 - Naming conventions
 - Approvals, CODEOWNERS, and branch protection rules
 - Post-deploy monitoring tools
-
-To automatically generate a context for a new repository:
-
-```bash
-python main.py analyze-repo https://github.com/owner/repo
-```
 
 If documentation is requested for a repository with no context file, the tool returns an error.
 
@@ -160,10 +151,12 @@ The service runs as an **Azure App Service Web App for Containers** on a B1 dedi
 
 ```bash
 docker buildx build --platform linux/amd64 --target production \
-  -t ghcr.io/<owner>/release-notes-agent:<tag> --push .
+  -t ghcr.io/pagopa/payment-release-notes-agent:<tag> --push .
 ```
 
-The GitHub Actions workflow `.github/workflows/docker-build.yml` builds and pushes automatically on every PR and merge to `main`.
+The GitHub Actions workflows handle this automatically:
+- `.github/workflows/docker-build.yml` — builds and pushes on every PR (tagged `sha-*` and `pr-*`)
+- `.github/workflows/release.yml` — builds and pushes the versioned image (`vX.X.X`) on merge to `main`, then creates the GitHub Release and git tag
 
 ### App Service configuration
 
@@ -173,7 +166,7 @@ The GitHub Actions workflow `.github/workflows/docker-build.yml` builds and push
 | `GITHUB_TOKEN` | GitHub PAT |
 | `AzureWebJobsStorage` | Storage Account connection string |
 | `LLM_PROVIDER` | `copilot` |
-| `COPILOT_MODEL` | `openai/chatgpt-4.1` |
+| `COPILOT_MODEL` | `openai/gpt-4.1` |
 
 See [Environment Variables](#environment-variables) for the full list.
 
@@ -189,7 +182,7 @@ CONFLUENCE_PARENT=1590690001 \
 CONFLUENCE_TITLE="Deploy v1.2.0" \
 ./generate_release.sh pagopa/pagopa-infra 3924 1.2.0 PROJ-123
 
-# With custom API key (e.g. APIM subscription key)
+# With APIM subscription key
 API_KEY=xxx ./generate_release.sh pagopa/pagopa-infra 3924 1.2.0
 ```
 
@@ -235,22 +228,6 @@ The completed PDF is available via SAS URL for 1 hour.
 | `DEPARTMENT_NAME` | — | Department name in the PDF header |
 | `STALE_JOB_MINUTES` | `20` | Minutes before a pending job is marked as failed |
 | `LOG_LEVEL` | `INFO` | Python logging level |
-
-## CLI
-
-```bash
-# Generate with enhanced agent (structured PDF)
-python main.py generate https://github.com/owner/repo/pull/123 --version 1.2.0 --enhanced
-
-# Preview without export
-python main.py preview https://github.com/owner/repo/pull/123 --enhanced
-
-# Analyse a repository and generate its cicd_context
-python main.py analyze-repo https://github.com/owner/repo
-
-# List available models on GitHub Models
-python main.py list-models
-```
 
 ---
 

@@ -38,10 +38,11 @@ class ConfluenceExporter:
         space: str,
         parent_page: Optional[str] = None,
         page_title: Optional[str] = None,
+        placeholder: bool = False,
+        error_message: Optional[str] = None,
     ) -> str:
-        """Crea (o aggiorna) la pagina Confluence. Ritorna l'URL della pagina."""
         title     = page_title or f"Release Notes — {release_notes.repo_full_name} PR#{release_notes.pr_number}"
-        body      = self._build_body(release_notes)
+        body      = self._build_body(release_notes, placeholder=placeholder, error_message=error_message)
         parent_id = self._resolve_parent_id(space, parent_page)
 
         if parent_id:
@@ -68,8 +69,10 @@ class ConfluenceExporter:
                     body=body,
                 )
 
-        page_url = self.base_url + result.get("_links", {}).get("webui", "")
-        logger.info("Confluence: pagina creata/aggiornata → %s", page_url)
+        links = result.get("_links", {})
+        base = links.get("base") or (self.base_url.rstrip("/") + "/wiki")
+        page_url = base.rstrip("/") + links.get("webui", "")
+        logger.info("Confluence: page created/updated → %s", page_url)
         return page_url
 
     def _resolve_parent_id(self, space: str, parent_page: Optional[str]) -> Optional[str]:
@@ -82,14 +85,34 @@ class ConfluenceExporter:
         page = self.confluence.get_page_by_title(space=space, title=parent_page)
         if page:
             return page["id"]
-        logger.warning("Pagina padre '%s' non trovata nello spazio %s — creo in radice", parent_page, space)
+        logger.warning("Parent page '%s' not found in space %s — creating at root", parent_page, space)
         return None
 
     # ── Body builder ──────────────────────────────────────────────────────────
 
-    def _build_body(self, rn) -> str:
+    def _build_body(self, rn, placeholder: bool = False, error_message: Optional[str] = None) -> str:
         parts = []
         parts.append(self._metadata_table(rn))
+
+        if error_message:
+            parts.append(
+                '<ac:structured-macro ac:name="warning"><ac:rich-text-body>'
+                f'<p><strong>Generazione del documento non riuscita.</strong></p>'
+                f'<p>{_e(error_message)}</p>'
+                '</ac:rich-text-body></ac:structured-macro>'
+            )
+            return "\n".join(p for p in parts if p)
+
+        if placeholder:
+            parts.append(
+                '<ac:structured-macro ac:name="info"><ac:rich-text-body>'
+                '<p>⏳ <strong>Generazione del documento in corso…</strong></p>'
+                '<p>Questa pagina verrà aggiornata automaticamente al termine '
+                'dell\'analisi della Pull Request.</p>'
+                '</ac:rich-text-body></ac:structured-macro>'
+            )
+            return "\n".join(p for p in parts if p)
+
         parts.append(self._section("1. Sommario Esecutivo",      rn.summary))
         parts.append(self._section("2. Motivazione e Contesto",  rn.motivation_and_context))
         parts.append(self._section("3. Dettaglio delle Modifiche", rn.change_details_narrative))

@@ -24,7 +24,7 @@ class JiraExporter:
     ) -> None:
         self._attach(issue_key, pdf_path, platform, pr_number)
         self._comment(issue_key, platform, pr_number, version)
-        logger.info("JIRA: allegato PDF e commento aggiunti su %s", issue_key)
+        logger.info("JIRA: PDF attached and comment added to %s", issue_key)
 
     def _attach(self, issue_key: str, pdf_path: str, platform: str, pr_number) -> None:
         url = f"{self.base_url}/rest/api/2/issue/{issue_key}/attachments"
@@ -39,9 +39,9 @@ class JiraExporter:
             )
         if not resp.ok:
             raise ValueError(
-                f"JIRA attachment fallito ({resp.status_code}): {resp.text}"
+                f"JIRA attachment failed ({resp.status_code}): {resp.text}"
             )
-        logger.info("JIRA: allegato %s su %s", filename, issue_key)
+        logger.info("JIRA: attached %s to %s", filename, issue_key)
 
     def _comment(
         self, issue_key: str, platform: str, pr_number, version: str
@@ -60,5 +60,5 @@ class JiraExporter:
         )
         if not resp.ok:
             raise ValueError(
-                f"JIRA comment fallito ({resp.status_code}): {resp.text}"
+                f"JIRA comment failed ({resp.status_code}): {resp.text}"
             )

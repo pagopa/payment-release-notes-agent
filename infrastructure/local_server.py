@@ -66,10 +66,57 @@ def enqueue_generate(body: dict):
     job_id = str(uuid.uuid4())
     _upload_blob(conn_str, f"{job_id}.pending", b"pending")
 
+    pr_url = f"https://github.com/{platform}/pull/{pr_number}"
+
+    agent               = None
+    release_notes       = None
+    gh_context          = None
+    placeholder_created = False
+    confluence_page_url = None
+    resolved_page_title = confluence_page_title or None
+
+    if confluence_space:
+        try:
+            from src.config import config
+            atlassian = config.atlassian
+            if atlassian.enabled:
+                from src.agent.enhanced_release_notes_agent import EnhancedReleaseNotesAgent
+                from src.agent.exporters.confluence_exporter import ConfluenceExporter
+
+                agent = EnhancedReleaseNotesAgent()
+                release_notes, gh_context = agent.prepare_release_notes(pr_url, str(version))
+                resolved_page_title = confluence_page_title or \
+                    f"Release Notes — {release_notes.repo_full_name or platform} PR#{pr_number}"
+
+                confluence_page_url = ConfluenceExporter(
+                    atlassian.url, atlassian.user, atlassian.token
+                ).export(
+                    release_notes=release_notes,
+                    space=confluence_space,
+                    parent_page=confluence_parent_page or None,
+                    page_title=resolved_page_title,
+                    placeholder=True,
+                )
+                placeholder_created = True
+                logger.info("Confluence placeholder created synchronously → %s", confluence_page_url)
+            else:
+                logger.warning("confluence_space provided but ATLASSIAN_URL/USER/TOKEN missing — placeholder skipped")
+        except Exception as exc:
+            # Fallback: il worker creerà e aggiornerà la pagina in modo asincrono
+            logger.exception("Synchronous Confluence placeholder creation failed: %s", exc)
+            agent = release_notes = gh_context = None
+            placeholder_created = False
+
     threading.Thread(
         target=_do_generate,
         args=(conn_str, job_id, platform, pr_number, version,
-              jira_issue_key, confluence_space, confluence_parent_page, confluence_page_title),
+              jira_issue_key, confluence_space, confluence_parent_page, resolved_page_title or ""),
+        kwargs={
+            "agent":               agent,
+            "release_notes":       release_notes,
+            "gh_context":          gh_context,
+            "placeholder_created": placeholder_created,
+        },
         daemon=True,
         name=f"job-{job_id[:8]}",
     ).start()
@@ -81,6 +128,7 @@ def enqueue_generate(body: dict):
         "status_url":       f"/api/status/{job_id}",
         "jira_issue_key":   jira_issue_key or None,
         "confluence_space": confluence_space or None,
+        "confluence_url":   confluence_page_url,
     }, status_code=202)
 
 
@@ -133,7 +181,8 @@ def _log(job_id: str, msg: str, *args, conn_str: str = None) -> None:
 
 def _do_generate(
     conn_str, job_id, platform, pr_number, version,
-    jira_issue_key="", confluence_space="", confluence_parent_page="", confluence_page_title=""
+    jira_issue_key="", confluence_space="", confluence_parent_page="", confluence_page_title="",
+    agent=None, release_notes=None, gh_context=None, placeholder_created=False,
 ):
     pr_url = f"https://github.com/{platform}/pull/{pr_number}"
     _log(job_id, "START %s v%s | jira=%s confluence=%s",
@@ -150,6 +199,14 @@ def _do_generate(
 
     threading.Thread(target=_heartbeat, daemon=True, name=f"hb-{job_id[:8]}").start()
 
+    # Stato condiviso per la gestione della pagina Confluence (placeholder/update/errore)
+    confluence_ctx = {
+        "exporter":      None,
+        "release_notes": release_notes,
+        "page_title":    confluence_page_title or None,
+        "page_url":      None,
+    }
+
     try:
         _log(job_id, "importing modules...", conn_str=conn_str)
         from src.config import config
@@ -159,17 +216,59 @@ def _do_generate(
              os.getenv("COPILOT_MODEL") or os.getenv("OPENAI_MODEL") or os.getenv("ANTHROPIC_MODEL"),
              conn_str=conn_str)
 
+        atlassian = config.atlassian
+
         with tempfile.TemporaryDirectory() as tmpdir:
             pdf_path = os.path.join(tmpdir, f"release_notes_{pr_number}.pdf")
             config.pdf.output_path = pdf_path
             config.pdf.enabled = True
 
-            _log(job_id, "initializing agent...", conn_str=conn_str)
-            agent = EnhancedReleaseNotesAgent()
-            _log(job_id, "agent ready — calling generate_and_export", conn_str=conn_str)
+            # ── Agente + dati GitHub: riusa quelli preparati sincronamente ─────
+            if agent is None:
+                _log(job_id, "initializing agent...", conn_str=conn_str)
+                agent = EnhancedReleaseNotesAgent()
+                _log(job_id, "agent ready", conn_str=conn_str)
 
-            result = agent.generate_and_export(pr_url, str(version))
-            _log(job_id, "generate_and_export done: %s", list(result.keys()), conn_str=conn_str)
+            if release_notes is None or gh_context is None:
+                _log(job_id, "preparing release notes (GitHub data)...", conn_str=conn_str)
+                release_notes, gh_context = agent.prepare_release_notes(pr_url, str(version))
+                confluence_ctx["release_notes"] = release_notes
+            else:
+                _log(job_id, "reusing release notes prepared synchronously", conn_str=conn_str)
+
+            # ── Confluence placeholder (solo se non già creato sincronamente) ──
+            if confluence_space and atlassian.enabled:
+                from src.agent.exporters.confluence_exporter import ConfluenceExporter
+                page_title = confluence_page_title or \
+                    f"Release Notes — {release_notes.repo_full_name or platform} PR#{pr_number}"
+                confluence_ctx["page_title"] = page_title
+                confluence_ctx["exporter"] = ConfluenceExporter(
+                    atlassian.url, atlassian.user, atlassian.token
+                )
+                if not placeholder_created:
+                    _log(job_id, "creating Confluence placeholder page in space %s", confluence_space, conn_str=conn_str)
+                    page_url = confluence_ctx["exporter"].export(
+                        release_notes=release_notes,
+                        space=confluence_space,
+                        parent_page=confluence_parent_page or None,
+                        page_title=page_title,
+                        placeholder=True,
+                    )
+                    confluence_ctx["page_url"] = page_url
+                    _log(job_id, "Confluence placeholder ready → %s", page_url, conn_str=conn_str)
+                else:
+                    _log(job_id, "Confluence placeholder already created synchronously — will update", conn_str=conn_str)
+            elif confluence_space:
+                logger.warning("[job:%s] confluence_space provided but ATLASSIAN_URL/USER/TOKEN missing", job_id)
+
+            # ── Arricchimento LLM ──────────────────────────────────────────────
+            _log(job_id, "enriching release notes (LLM)...", conn_str=conn_str)
+            agent.enrich_release_notes(release_notes, gh_context)
+            _log(job_id, "LLM enrichment done", conn_str=conn_str)
+
+            # ── Export PDF/JSON ────────────────────────────────────────────────
+            result = agent.export_release_notes(release_notes)
+            _log(job_id, "export done: %s", list(result.keys()), conn_str=conn_str)
 
             actual_pdf = result["pdf"]
             with open(actual_pdf, "rb") as f:
@@ -177,8 +276,6 @@ def _do_generate(
             _log(job_id, "PDF size=%d bytes — uploading to blob", len(pdf_bytes), conn_str=conn_str)
             _upload_blob(conn_str, f"{job_id}.pdf", pdf_bytes, content_type="application/pdf")
             _log(job_id, "blob upload done", conn_str=conn_str)
-
-            atlassian = config.atlassian
 
             if jira_issue_key and atlassian.enabled:
                 _log(job_id, "attaching PDF to JIRA %s", jira_issue_key, conn_str=conn_str)
@@ -192,20 +289,19 @@ def _do_generate(
                 )
                 _log(job_id, "JIRA done", conn_str=conn_str)
             elif jira_issue_key:
-                logger.warning("[job:%s] jira_issue_key fornito ma ATLASSIAN_URL/USER/TOKEN mancanti", job_id)
+                logger.warning("[job:%s] jira_issue_key provided but ATLASSIAN_URL/USER/TOKEN missing", job_id)
 
-            if confluence_space and atlassian.enabled:
-                _log(job_id, "creating Confluence page in space %s", confluence_space, conn_str=conn_str)
-                from src.agent.exporters.confluence_exporter import ConfluenceExporter
-                page_url = ConfluenceExporter(atlassian.url, atlassian.user, atlassian.token).export(
-                    release_notes=result["release_notes"],
+            # ── Aggiorna la pagina Confluence col contenuto completo ───────────
+            if confluence_ctx["exporter"]:
+                _log(job_id, "updating Confluence page with full content", conn_str=conn_str)
+                page_url = confluence_ctx["exporter"].export(
+                    release_notes=release_notes,
                     space=confluence_space,
                     parent_page=confluence_parent_page or None,
-                    page_title=confluence_page_title or None,
+                    page_title=confluence_ctx["page_title"],
                 )
+                confluence_ctx["page_url"] = page_url
                 _log(job_id, "Confluence done → %s", page_url, conn_str=conn_str)
-            elif confluence_space:
-                logger.warning("[job:%s] confluence_space fornito ma ATLASSIAN_URL/USER/TOKEN mancanti", job_id)
 
         _delete_blob(conn_str, f"{job_id}.pending")
         _log(job_id, "COMPLETED")
@@ -214,6 +310,23 @@ def _do_generate(
         line = f"[ERROR] FAILED {job_id}: {exc}"
         logger.exception(line)
         print(line, flush=True)
+
+        # Se la pagina Confluence placeholder era già stata creata, aggiornala con
+        # una nota di errore invece di lasciarla in stato "Generazione in corso…".
+        if confluence_ctx["exporter"] and confluence_ctx["release_notes"] is not None:
+            try:
+                confluence_ctx["exporter"].export(
+                    release_notes=confluence_ctx["release_notes"],
+                    space=confluence_space,
+                    parent_page=confluence_parent_page or None,
+                    page_title=confluence_ctx["page_title"],
+                    error_message=str(exc),
+                )
+                logger.info("[job:%s] Confluence page updated with error note", job_id)
+            except Exception as conf_exc:
+                logger.error("[job:%s] failed to update Confluence page with error: %s",
+                             job_id, conf_exc)
+
         for attempt in range(3):
             try:
                 _upload_blob(conn_str, f"{job_id}.error", str(exc).encode())

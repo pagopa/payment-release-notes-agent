@@ -1,5 +1,5 @@
 """Release Notes Agent"""
 
-from .release_notes_agent import ReleaseNotesAgent
+from .enhanced_release_notes_agent import EnhancedReleaseNotesAgent
 
-__all__ = ["ReleaseNotesAgent"]
+__all__ = ["EnhancedReleaseNotesAgent"]
