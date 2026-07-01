@@ -2,29 +2,6 @@ data "azurerm_private_dns_zone" "azurewebsite" {
   name                = var.azure_website_dns_zone_name
   resource_group_name = var.internal_dns_zone_resource_group_name
 }
-#
-# # ── Key Vault secrets ─────────────────────────────────────────────────────────
-#
-data "azurerm_key_vault_secret" "github_token" {
-  name         = "github-token"
-  key_vault_id = data.azurerm_key_vault.kv.id
-}
-
-data "azurerm_key_vault_secret" "atlassian_token" {
-  name         = "atlassian-token"
-  key_vault_id = data.azurerm_key_vault.kv.id
-}
-
-data "azurerm_key_vault_secret" "atlassian_url" {
-  name         = "atlassian-url"
-  key_vault_id = data.azurerm_key_vault.kv.id
-}
-
-data "azurerm_key_vault_secret" "atlassian_user" {
-  name         = "atlassian-user"
-  key_vault_id = data.azurerm_key_vault.kv.id
-}
-
 # ── Resource group ────────────────────────────────────────────────────────────
 
 resource "azurerm_resource_group" "rg" {
@@ -48,8 +25,9 @@ module "webapp" {
   name                  = "${local.project}-app"
   app_service_plan_name = "${local.project}-plan"
 
-  docker_image     = "ghcr.io/pagopa/payment-release-notes-agent"
-  docker_image_tag = var.docker_image_tag
+  docker_image        = "ghcr.io/pagopa/payment-release-notes-agent"
+  docker_image_tag    = var.docker_image_tag
+  docker_registry_url = "https://ghcr.io"
 
   # Runtime
   always_on                    = false
@@ -87,7 +65,6 @@ module "webapp" {
 
     # Document generation
     ENVIRONMENTS      = var.environments
-    RESPONSIBLE_TEAM  = var.responsible_team
     DOCUMENT_LANGUAGE = var.document_language
     DEPARTMENT_NAME   = var.department_name
 

@@ -3,14 +3,14 @@
 ## Requirements
 
 | Name | Version |
-|------|---------|
+| ---- | ------- |
 | <a name="requirement_terraform"></a> [terraform](#requirement\_terraform) | >=1.9.8 |
 | <a name="requirement_azurerm"></a> [azurerm](#requirement\_azurerm) | ~> 4.0 |
 
 ## Modules
 
 | Name | Source | Version |
-|------|--------|---------|
+| ---- | ------ | ------- |
 | <a name="module_apim_api_payment_release_notes_v1"></a> [apim\_api\_payment\_release\_notes\_v1](#module\_apim\_api\_payment\_release\_notes\_v1) | git::https://github.com/pagopa/terraform-azurerm-v4.git//api_management_api | 7787f9ec0d71db411ebab613d7731a4286210c30 |
 | <a name="module_storage"></a> [storage](#module\_storage) | git::https://github.com/pagopa/terraform-azurerm-v4.git//IDH/storage_account | 7787f9ec0d71db411ebab613d7731a4286210c30 |
 | <a name="module_webapp"></a> [webapp](#module\_webapp) | git::https://github.com/pagopa/terraform-azurerm-v4.git//IDH/app_service_webapp | 7787f9ec0d71db411ebab613d7731a4286210c30 |
@@ -18,7 +18,7 @@
 ## Resources
 
 | Name | Type |
-|------|------|
+| ---- | ---- |
 | [azurerm_api_management_api_version_set.payment_release_notes](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/api_management_api_version_set) | resource |
 | [azurerm_api_management_product.payment_release_notes](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/api_management_product) | resource |
 | [azurerm_api_management_subscription.payment_release_notes](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/api_management_subscription) | resource |
@@ -36,7 +36,7 @@
 ## Inputs
 
 | Name | Description | Type | Default | Required |
-|------|-------------|------|---------|:--------:|
+| ---- | ----------- | ---- | ------- | :------: |
 | <a name="input_allowed_subnet_ids"></a> [allowed\_subnet\_ids](#input\_allowed\_subnet\_ids) | n/a | `list(string)` | n/a | yes |
 | <a name="input_api_management_name"></a> [api\_management\_name](#input\_api\_management\_name) | Name of the existing APIM instance. Leave empty to skip APIM resources. | `string` | `""` | no |
 | <a name="input_api_management_rg"></a> [api\_management\_rg](#input\_api\_management\_rg) | Resource group of the existing APIM instance. | `string` | `""` | no |
@@ -61,7 +61,6 @@
 | <a name="input_log_level"></a> [log\_level](#input\_log\_level) | Python log level: DEBUG \| INFO \| WARNING \| ERROR | `string` | `"INFO"` | no |
 | <a name="input_prefix"></a> [prefix](#input\_prefix) | n/a | `string` | n/a | yes |
 | <a name="input_private_dns_zone_blob_ids"></a> [private\_dns\_zone\_blob\_ids](#input\_private\_dns\_zone\_blob\_ids) | n/a | `list(string)` | n/a | yes |
-| <a name="input_responsible_team"></a> [responsible\_team](#input\_responsible\_team) | Team name printed in the release notes document. | `string` | n/a | yes |
 | <a name="input_stale_job_minutes"></a> [stale\_job\_minutes](#input\_stale\_job\_minutes) | Minutes after which a pending job is considered stale and marked as failed. | `number` | `20` | no |
 | <a name="input_tags"></a> [tags](#input\_tags) | n/a | `map(string)` | `{}` | no |
 | <a name="input_vnet_name"></a> [vnet\_name](#input\_vnet\_name) | Name of the existing VNet where the webapp outbound subnet lives. | `string` | n/a | yes |

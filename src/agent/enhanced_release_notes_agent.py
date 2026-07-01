@@ -3,10 +3,11 @@
 import json
 import logging
 from datetime import datetime
-from typing import Optional
+from typing import List, Optional
 
 from src.config import config
 from src.models import ReleaseNotes
+from src.agent.tools import codeowners
 from src.agent.tools.github_tools import GitHubTools
 from src.agent.tools.analysis_tools import AnalysisTools
 from src.agent.tools.document_generator import DocumentGenerator
@@ -107,6 +108,9 @@ class EnhancedReleaseNotesAgent:
         release_notes.change_details_narrative = tech.get("change_details_narrative", "")
         release_notes.risk_matrix_items = tech.get("risk_matrix", [])
 
+        # ── Resolve responsible owners from CODEOWNERS ────────────────────────
+        owners = self._resolve_owners(release_notes.repo_full_name, files)
+
         # ── LLM: operations guide ─────────────────────────────────────────────
         logger.info("Generating operations guide...")
         ops = self.document_generator.generate_operations_guide(
@@ -114,7 +118,7 @@ class EnhancedReleaseNotesAgent:
             overview=overview,
             files=files,
             environments=environments,
-            responsible_team=config.llm.responsible_team,
+            owners=owners,
         )
         release_notes.deployment_prerequisites = ops.get("prerequisites", [])
         release_notes.deployment_steps_by_env = ops.get("deployment_steps", {})
@@ -128,6 +132,21 @@ class EnhancedReleaseNotesAgent:
         release_notes.monitoring_notes = verify.get("monitoring_notes", "")
 
         return release_notes
+
+    def _resolve_owners(self, repo_full_name: str, files: list) -> List[str]:
+        """Resolve the CODEOWNERS entries covering the files touched by this PR."""
+        if not repo_full_name or "/" not in repo_full_name:
+            return []
+        owner, repo = repo_full_name.split("/", 1)
+        try:
+            content = self.github_tools.get_codeowners(owner, repo)
+            if not content:
+                return []
+            rules = codeowners.parse(content)
+            return codeowners.resolve_owners(rules, [f.path for f in files])
+        except Exception:
+            logger.exception(f"Failed to resolve CODEOWNERS for {repo_full_name}")
+            return []
 
     def export_release_notes(self, release_notes: ReleaseNotes) -> dict:
         """Phase 3 — export the (enriched) ReleaseNotes to PDF + JSON."""
