@@ -26,8 +26,7 @@ class LLMConfig:
     anthropic_api_key: Optional[str] = os.getenv("ANTHROPIC_API_KEY")
     anthropic_model: str = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-6")
     # Document generation settings
-    environments: str = os.getenv("ENVIRONMENTS", "dev,uat,prod")
-    responsible_team: str = os.getenv("RESPONSIBLE_TEAM", "Team Infrastructure")
+    environments: str = os.getenv("ENVIRONMENTS", "prod")
     document_language: str = os.getenv("DOCUMENT_LANGUAGE", "Italian")
     cicd_context_file: str = os.getenv("CICD_CONTEXT_FILE", "")  # override; auto-detect if empty
 

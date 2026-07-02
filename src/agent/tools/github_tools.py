@@ -2,7 +2,7 @@
 
 import logging
 import re
-from github import Github
+from github import Github, GithubException
 from typing import Tuple, Dict, List, Optional
 from src.models import FileChange
 
@@ -105,3 +105,23 @@ class GitHubTools:
         """Get files changed in a PR (dict format for backward compatibility)"""
         files = self.get_pr_files(owner, repo, pr_number)
         return [f.to_dict() for f in files]
+
+    _CODEOWNERS_PATHS = ("CODEOWNERS", ".github/CODEOWNERS", "docs/CODEOWNERS")
+
+    def get_codeowners(self, owner: str, repo: str) -> Optional[str]:
+        """Fetch the raw CODEOWNERS file content, checking the standard locations."""
+        try:
+            repository = self.github.get_user(owner).get_repo(repo)
+        except Exception as e:
+            logger.warning(f"Could not open repository {owner}/{repo} for CODEOWNERS lookup: {e}")
+            return None
+
+        for path in self._CODEOWNERS_PATHS:
+            try:
+                f = repository.get_contents(path)
+                if isinstance(f, list):
+                    continue
+                return f.decoded_content.decode("utf-8", errors="replace")
+            except GithubException:
+                continue
+        return None

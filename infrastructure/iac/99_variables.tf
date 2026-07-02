@@ -85,12 +85,7 @@ variable "copilot_model" {
 variable "environments" {
   type        = string
   description = "Comma-separated list of environments included in release notes."
-  default     = "dev,uat,prod"
-}
-
-variable "responsible_team" {
-  type        = string
-  description = "Team name printed in the release notes document."
+  default     = "prod"
 }
 
 variable "document_language" {

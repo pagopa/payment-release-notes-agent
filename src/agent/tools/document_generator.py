@@ -48,29 +48,35 @@ class DocumentGenerator:
 
     CONTEXTS_DIR = "./cicd_contexts"
 
-    def __init__(self, llm_config, language: str = "Italian", cicd_context_file: str = ""):
+    def __init__(self, llm_config, language: str = "Italian", cicd_context_file: str = "", github_token: str = ""):
         self.llm_config = llm_config
         self.language = language
         self._explicit_context_file = cicd_context_file
+        self._github_token = github_token
         self.cicd_context = ""        # populated lazily via load_context_for_repo()
         self.llm = self._initialize_llm()
 
-    def load_context_for_repo(self, repo_full_name: str) -> None:
+    def load_context_for_repo(self, repo_full_name: str) -> bool:
         """Resolve and load the CI/CD context for *repo_full_name*.
 
         Resolution order:
         1. Explicit CICD_CONTEXT_FILE env var / config value (if set and exists)
         2. cicd_contexts/<owner>_<repo>.md
 
-        Raises ValueError if no context file is found — unsupported repositories
-        must not fall back to a generic context.
+        Returns True if a context was found and loaded, False otherwise. When
+        False, self.cicd_context is left empty — call ensure_context_generated()
+        to generate and persist one at runtime via RepoAnalyzer.
         """
         # 1. Explicit override
         if self._explicit_context_file:
             content = self._read_file(self._explicit_context_file)
             if content:
+                logger.info(
+                    f"CI/CD context REUSED for '{repo_full_name}' "
+                    f"(explicit override file: {self._explicit_context_file})"
+                )
                 self.cicd_context = content
-                return
+                return True
 
         # 2. Repo-specific file
         if repo_full_name:
@@ -78,14 +84,81 @@ class DocumentGenerator:
             repo_path = os.path.join(self.CONTEXTS_DIR, f"{slug}.md")
             content = self._read_file(repo_path)
             if content:
-                logger.info(f"Using repo-specific CI/CD context: {repo_path}")
+                logger.info(
+                    f"CI/CD context REUSED for '{repo_full_name}' "
+                    f"(existing .md file: {repo_path})"
+                )
                 self.cicd_context = content
-                return
+                return True
 
-        raise ValueError(
-            f"No CI/CD context file found for repository '{repo_full_name}'. "
-            f"Add cicd_contexts/{repo_full_name.replace('/', '_')}.md to support this repository."
+        logger.warning(
+            f"No CI/CD context .md file found for repository '{repo_full_name}' — "
+            f"will be generated at runtime before enrichment."
         )
+        self.cicd_context = ""
+        return False
+
+    def ensure_context_generated(self, repo_full_name: str) -> None:
+        """If no CI/CD context is currently loaded, generate one at runtime via
+        RepoAnalyzer and persist it to CONTEXTS_DIR/<owner>_<repo>.md so it is
+        reused for subsequent invocations (until the process/container restarts).
+
+        A file already present under CONTEXTS_DIR — whether baked into the
+        Docker image at build time, or written by an earlier invocation in
+        this same container's lifetime — must NEVER be overwritten. This is
+        re-checked here (not just relied upon via load_context_for_repo()) and
+        enforced atomically at write time, so it holds even under concurrent
+        requests for the same new repository.
+        """
+        if self.cicd_context or not repo_full_name:
+            return
+
+        slug = repo_full_name.replace("/", "_")
+        os.makedirs(self.CONTEXTS_DIR, exist_ok=True)
+        path = os.path.join(self.CONTEXTS_DIR, f"{slug}.md")
+
+        # Defensive re-check: do NOT generate if the file already exists.
+        existing = self._read_file(path)
+        if existing:
+            logger.info(f"CI/CD context REUSED for '{repo_full_name}' (existing .md file: {path})")
+            self.cicd_context = existing
+            return
+
+        if not self._github_token:
+            logger.warning("Cannot auto-generate CI/CD context: no GitHub token configured")
+            return
+
+        from src.agent.tools.repo_analyzer import RepoAnalyzer
+
+        try:
+            analyzer = RepoAnalyzer(self._github_token, self)
+            _, context = analyzer.analyze(repo_full_name)
+        except Exception:
+            logger.exception(f"Failed to auto-generate CI/CD context for {repo_full_name}")
+            return
+
+        if not context:
+            # RepoAnalyzer already logged why (e.g. empty LLM response). Do not
+            # persist a placeholder — retry from scratch on the next invocation.
+            return
+
+        # Atomic exclusive create: guarantees we can NEVER clobber a file that
+        # already exists, even if another request raced us here in between
+        # the check above and this write.
+        try:
+            fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError:
+            logger.info(f"CI/CD context REUSED for '{repo_full_name}' (existing .md file written concurrently: {path})")
+            self.cicd_context = self._read_file(path)
+            return
+
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(context)
+        logger.info(
+            f"CI/CD context CREATED for '{repo_full_name}' "
+            f"(generated via RepoAnalyzer, saved to new .md file: {path})"
+        )
+        self.cicd_context = context
 
     @staticmethod
     def _read_file(path: str) -> str:
@@ -281,10 +354,44 @@ class DocumentGenerator:
 
     # ─── Public section generators ────────────────────────────────────────────
 
-    def generate_overview(self, pr_details: dict, commits: list, files: list) -> dict:
+    # Known environment names the LLM might use even when out of scope — used
+    # only to recognise and strip them; anything else (e.g. "main", "n/a") is
+    # left untouched since it isn't necessarily an environment reference.
+    _KNOWN_ENV_NAMES = {"dev", "development", "uat", "staging", "stage", "test", "testing", "qa", "prod", "production"}
+
+    @classmethod
+    def _filter_to_configured_environments(cls, environments: List[str], deployment_steps: dict, rollback_steps: list) -> tuple:
+        """Defensive filter: drop any environment outside the configured scope,
+        even if the LLM ignored the prompt instructions and returned it anyway."""
+        allowed = {e.strip().lower() for e in environments}
+
+        filtered_steps = {
+            env: steps for env, steps in (deployment_steps or {}).items()
+            if env.strip().lower() in allowed
+        }
+
+        filtered_rollback = [
+            r for r in (rollback_steps or [])
+            if str(r.get("environment") or "").strip().lower() not in (cls._KNOWN_ENV_NAMES - allowed)
+        ]
+
+        return filtered_steps, filtered_rollback
+
+    @classmethod
+    def _filter_environments_affected(cls, environments: List[str], environments_affected: list) -> list:
+        allowed = {e.strip().lower() for e in environments}
+        return [e for e in (environments_affected or []) if str(e).strip().lower() in allowed]
+
+    def generate_overview(self, pr_details: dict, commits: list, files: list, environments: List[str]) -> dict:
         """Return executive_summary, motivation_and_context, user_impact,
-        environments_affected, domain."""
+        environments_affected, domain.
+
+        *environments* is the configured list of environments in scope for this
+        deployment (e.g. only ["prod"]). environments_affected must be a subset
+        of it — the LLM must not invent environments outside this scope.
+        """
         lang = self.language
+        envs = ", ".join(environments)
         cicd_block = f"\n--- CI/CD CONTEXT ---\n{self.cicd_context}\n" if self.cicd_context else ""
         prompt = f"""You are a technical writer specialising in cloud infrastructure release documentation.
 Language of the output: {lang}.
@@ -300,6 +407,7 @@ Target branch: {pr_details.get('base_branch', 'N/A')}
 State: {'Draft — in revisione' if pr_details.get('draft') else pr_details.get('state', 'N/A')}
 Labels: {', '.join(pr_details.get('labels', [])) or 'none'}
 Stats: {pr_details.get('changed_files')} files changed, +{pr_details.get('additions')}/-{pr_details.get('deletions')} lines
+Environments in scope for this release: {envs}
 
 --- PR DESCRIPTION ---
 {pr_details.get('body') or 'N/A'}
@@ -314,12 +422,15 @@ Return this JSON structure:
 {{
   "executive_summary": "3-5 sentence executive summary of what this PR does and its business/technical impact",
   "motivation_and_context": "3-6 paragraphs explaining WHY this PR exists, the problem it solves, background, expected benefits",
-  "user_impact": "Impact on end users (e.g. 'No direct user impact in production (DEV/UAT only)' or describe the impact)",
-  "environments_affected": ["dev", "uat"],
+  "user_impact": "Impact on end users",
+  "environments_affected": ["only environments from this list that are actually affected: {envs}"],
   "domain": "Domain/system involved (e.g. 'Node / Core / Node Forwarder')"
 }}"""
 
         result = self._call_llm_json(prompt, max_tokens=3000, section="overview")
+        result["environments_affected"] = self._filter_environments_affected(
+            environments, result.get("environments_affected")
+        )
         logger.info("Generated overview section")
         return result
 
@@ -357,50 +468,60 @@ Return this JSON structure:
         overview: dict,
         files: list,
         environments: List[str],
-        responsible_team: str,
+        owners: List[str],
     ) -> dict:
-        """Return prerequisites, deployment_steps_by_env, rollback_plan_items, rollback_note."""
+        """Return prerequisites, deployment_steps_by_env, rollback_plan_items, rollback_note.
+
+        *owners* are the GitHub handles/teams resolved from the repository's
+        CODEOWNERS for the files touched by this PR (see codeowners.py). May
+        be empty if the repo has no CODEOWNERS or none of its rules matched.
+        """
         lang = self.language
         envs = ", ".join(environments)
+        owners_line = ", ".join(owners) if owners else "none found in CODEOWNERS for these files"
         cicd_block = f"\n--- CI/CD CONTEXT ---\n{self.cicd_context}\n" if self.cicd_context else ""
+        deployment_steps_example = ",\n    ".join(
+            f'"{env}": [{{"order": 1, "action": "Step description", "responsible": "one of the CODEOWNERS owners above if any, otherwise a sensible placeholder", "notes": "Optional notes"}}]'
+            for env in environments
+        )
         prompt = f"""You are a senior DevOps engineer.
 Language of the output: {lang}.
 {cicd_block}
 Generate the deployment and rollback plan for this PR. Return a JSON object (no other text).
-Use the CI/CD context above to generate SPECIFIC commands and steps (actual script names, pipeline names, environment codes like weu-dev/weu-uat/weu-prod, real tool names).
+Use the CI/CD context above to generate SPECIFIC commands and steps (actual script names, pipeline names, environment codes, real tool names).
+STRICT SCOPE: this release ONLY targets the following environment(s): {envs}. Do NOT generate steps for any other environment, even if the CI/CD context mentions them.
 
 --- PR INFO ---
 Repository: {pr_details.get('repo_full_name', 'N/A')}
 PR: #{pr_details.get('number')} — {pr_details.get('title')}
 Author: {pr_details.get('author')}
 Environments to cover: {envs}
-Responsible team: {responsible_team}
+Responsible owners (resolved from CODEOWNERS for the files touched by this PR): {owners_line}
 Domain: {overview.get('domain', 'N/A')}
 User impact: {overview.get('user_impact', 'N/A')}
 
 --- FILES CHANGED ---
 {self._files_summary(files)}
 
-Return this JSON structure (only include environments that are actually affected):
+Return this JSON structure (deployment_steps and rollback_steps must ONLY reference environments from: {envs}):
 {{
   "prerequisites": [
     "Prerequisite 1",
     "Prerequisite 2"
   ],
   "deployment_steps": {{
-    "dev": [
-      {{"order": 1, "action": "Step description", "responsible": "Team or person", "notes": "Optional notes"}}
-    ],
-    "uat": [...],
-    "prod": [...]
+    {deployment_steps_example}
   }},
   "rollback_steps": [
-    {{"order": 1, "action": "Rollback action", "environment": "dev/uat/prod/main", "responsible": "Team or person", "notes": ""}}
+    {{"order": 1, "action": "Rollback action", "environment": "one of: {envs}", "responsible": "one of the CODEOWNERS owners above if any, otherwise a sensible placeholder", "notes": ""}}
   ],
   "rollback_note": "One sentence note on rollback impact (e.g. no existing resources modified)"
 }}"""
 
         result = self._call_llm_json(prompt, max_tokens=6000, section="operations_guide")
+        result["deployment_steps"], result["rollback_steps"] = self._filter_to_configured_environments(
+            environments, result.get("deployment_steps"), result.get("rollback_steps")
+        )
         logger.info("Generated operations guide")
         return result
 

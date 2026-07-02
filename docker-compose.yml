@@ -6,3 +6,5 @@ services:
     ports:
       - "7071:7071"
     env_file: .env         # loads GITHUB_TOKEN, LLM_PROVIDER, etc.
+    volumes:
+      - ./cicd_contexts:/app/cicd_contexts   # local-only: inspect auto-generated context files on the host
