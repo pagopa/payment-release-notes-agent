@@ -354,6 +354,34 @@ class DocumentGenerator:
 
     # ─── Public section generators ────────────────────────────────────────────
 
+    # Known environment names the LLM might use even when out of scope — used
+    # only to recognise and strip them; anything else (e.g. "main", "n/a") is
+    # left untouched since it isn't necessarily an environment reference.
+    _KNOWN_ENV_NAMES = {"dev", "development", "uat", "staging", "stage", "test", "testing", "qa", "prod", "production"}
+
+    @classmethod
+    def _filter_to_configured_environments(cls, environments: List[str], deployment_steps: dict, rollback_steps: list) -> tuple:
+        """Defensive filter: drop any environment outside the configured scope,
+        even if the LLM ignored the prompt instructions and returned it anyway."""
+        allowed = {e.strip().lower() for e in environments}
+
+        filtered_steps = {
+            env: steps for env, steps in (deployment_steps or {}).items()
+            if env.strip().lower() in allowed
+        }
+
+        filtered_rollback = [
+            r for r in (rollback_steps or [])
+            if str(r.get("environment") or "").strip().lower() not in (cls._KNOWN_ENV_NAMES - allowed)
+        ]
+
+        return filtered_steps, filtered_rollback
+
+    @classmethod
+    def _filter_environments_affected(cls, environments: List[str], environments_affected: list) -> list:
+        allowed = {e.strip().lower() for e in environments}
+        return [e for e in (environments_affected or []) if str(e).strip().lower() in allowed]
+
     def generate_overview(self, pr_details: dict, commits: list, files: list, environments: List[str]) -> dict:
         """Return executive_summary, motivation_and_context, user_impact,
         environments_affected, domain.
@@ -400,6 +428,9 @@ Return this JSON structure:
 }}"""
 
         result = self._call_llm_json(prompt, max_tokens=3000, section="overview")
+        result["environments_affected"] = self._filter_environments_affected(
+            environments, result.get("environments_affected")
+        )
         logger.info("Generated overview section")
         return result
 
@@ -449,11 +480,16 @@ Return this JSON structure:
         envs = ", ".join(environments)
         owners_line = ", ".join(owners) if owners else "none found in CODEOWNERS for these files"
         cicd_block = f"\n--- CI/CD CONTEXT ---\n{self.cicd_context}\n" if self.cicd_context else ""
+        deployment_steps_example = ",\n    ".join(
+            f'"{env}": [{{"order": 1, "action": "Step description", "responsible": "one of the CODEOWNERS owners above if any, otherwise a sensible placeholder", "notes": "Optional notes"}}]'
+            for env in environments
+        )
         prompt = f"""You are a senior DevOps engineer.
 Language of the output: {lang}.
 {cicd_block}
 Generate the deployment and rollback plan for this PR. Return a JSON object (no other text).
-Use the CI/CD context above to generate SPECIFIC commands and steps (actual script names, pipeline names, environment codes like weu-dev/weu-uat/weu-prod, real tool names).
+Use the CI/CD context above to generate SPECIFIC commands and steps (actual script names, pipeline names, environment codes, real tool names).
+STRICT SCOPE: this release ONLY targets the following environment(s): {envs}. Do NOT generate steps for any other environment, even if the CI/CD context mentions them.
 
 --- PR INFO ---
 Repository: {pr_details.get('repo_full_name', 'N/A')}
@@ -467,26 +503,25 @@ User impact: {overview.get('user_impact', 'N/A')}
 --- FILES CHANGED ---
 {self._files_summary(files)}
 
-Return this JSON structure (only include environments that are actually affected):
+Return this JSON structure (deployment_steps and rollback_steps must ONLY reference environments from: {envs}):
 {{
   "prerequisites": [
     "Prerequisite 1",
     "Prerequisite 2"
   ],
   "deployment_steps": {{
-    "dev": [
-      {{"order": 1, "action": "Step description", "responsible": "one of the CODEOWNERS owners above if any, otherwise a sensible placeholder", "notes": "Optional notes"}}
-    ],
-    "uat": [...],
-    "prod": [...]
+    {deployment_steps_example}
   }},
   "rollback_steps": [
-    {{"order": 1, "action": "Rollback action", "environment": "dev/uat/prod/main", "responsible": "one of the CODEOWNERS owners above if any, otherwise a sensible placeholder", "notes": ""}}
+    {{"order": 1, "action": "Rollback action", "environment": "one of: {envs}", "responsible": "one of the CODEOWNERS owners above if any, otherwise a sensible placeholder", "notes": ""}}
   ],
   "rollback_note": "One sentence note on rollback impact (e.g. no existing resources modified)"
 }}"""
 
         result = self._call_llm_json(prompt, max_tokens=6000, section="operations_guide")
+        result["deployment_steps"], result["rollback_steps"] = self._filter_to_configured_environments(
+            environments, result.get("deployment_steps"), result.get("rollback_steps")
+        )
         logger.info("Generated operations guide")
         return result
 
