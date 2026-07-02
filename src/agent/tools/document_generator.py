@@ -354,10 +354,16 @@ class DocumentGenerator:
 
     # ─── Public section generators ────────────────────────────────────────────
 
-    def generate_overview(self, pr_details: dict, commits: list, files: list) -> dict:
+    def generate_overview(self, pr_details: dict, commits: list, files: list, environments: List[str]) -> dict:
         """Return executive_summary, motivation_and_context, user_impact,
-        environments_affected, domain."""
+        environments_affected, domain.
+
+        *environments* is the configured list of environments in scope for this
+        deployment (e.g. only ["prod"]). environments_affected must be a subset
+        of it — the LLM must not invent environments outside this scope.
+        """
         lang = self.language
+        envs = ", ".join(environments)
         cicd_block = f"\n--- CI/CD CONTEXT ---\n{self.cicd_context}\n" if self.cicd_context else ""
         prompt = f"""You are a technical writer specialising in cloud infrastructure release documentation.
 Language of the output: {lang}.
@@ -373,6 +379,7 @@ Target branch: {pr_details.get('base_branch', 'N/A')}
 State: {'Draft — in revisione' if pr_details.get('draft') else pr_details.get('state', 'N/A')}
 Labels: {', '.join(pr_details.get('labels', [])) or 'none'}
 Stats: {pr_details.get('changed_files')} files changed, +{pr_details.get('additions')}/-{pr_details.get('deletions')} lines
+Environments in scope for this release: {envs}
 
 --- PR DESCRIPTION ---
 {pr_details.get('body') or 'N/A'}
@@ -387,8 +394,8 @@ Return this JSON structure:
 {{
   "executive_summary": "3-5 sentence executive summary of what this PR does and its business/technical impact",
   "motivation_and_context": "3-6 paragraphs explaining WHY this PR exists, the problem it solves, background, expected benefits",
-  "user_impact": "Impact on end users (e.g. 'No direct user impact in production (DEV/UAT only)' or describe the impact)",
-  "environments_affected": ["dev", "uat"],
+  "user_impact": "Impact on end users",
+  "environments_affected": ["only environments from this list that are actually affected: {envs}"],
   "domain": "Domain/system involved (e.g. 'Node / Core / Node Forwarder')"
 }}"""
 
