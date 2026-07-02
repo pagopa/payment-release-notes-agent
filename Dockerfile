@@ -1,5 +1,5 @@
 # ── Stage: local development (FastAPI, native ARM64/AMD64) ───────────────────
-FROM python:3.11-slim AS local
+FROM python:3.11-slim@sha256:b27df5841f3355e9473f9a516d38a6783b6c8dfeacaf2d14a240f443b368ddb6 AS local
 
 WORKDIR /app
 
@@ -17,7 +17,7 @@ CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "7071"]
 
 
 # ── Stage: production (App Service, linux/amd64, FastAPI) ─────────────────────
-FROM --platform=linux/amd64 python:3.11-slim AS production
+FROM --platform=linux/amd64 python:3.11-slim@sha256:b27df5841f3355e9473f9a516d38a6783b6c8dfeacaf2d14a240f443b368ddb6 AS production
 
 WORKDIR /app
 
