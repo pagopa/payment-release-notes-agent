@@ -95,7 +95,7 @@ class EnhancedReleaseNotesAgent:
 
         # ── LLM: overview ─────────────────────────────────────────────────────
         logger.info("Generating overview section...")
-        overview = self.document_generator.generate_overview(pr_details, commits, files)
+        overview = self.document_generator.generate_overview(pr_details, commits, files, environments)
         release_notes.summary = overview.get("executive_summary", "")
         release_notes.motivation_and_context = overview.get("motivation_and_context", "")
         release_notes.user_impact = overview.get("user_impact", "")
