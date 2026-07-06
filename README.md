@@ -226,6 +226,7 @@ The completed PDF is available via SAS URL for 1 hour.
 | `DEPARTMENT_NAME` | — | Department name in the PDF header |
 | `STALE_JOB_MINUTES` | `20` | Minutes before a pending job is marked as failed |
 | `LOG_LEVEL` | `INFO` | Python logging level |
+| `APPLICATIONINSIGHTS_CONNECTION_STRING` | — | Application Insights connection string; when set, enables Azure Monitor telemetry (set automatically on Azure) |
 
 ---
 

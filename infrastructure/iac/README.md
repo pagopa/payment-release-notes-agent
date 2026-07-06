@@ -25,12 +25,15 @@
 | [azurerm_key_vault_access_policy.permissions](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/key_vault_access_policy) | resource |
 | [azurerm_key_vault_secret.apim_subscription_key](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/key_vault_secret) | resource |
 | [azurerm_key_vault_secret.connection_string](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/key_vault_secret) | resource |
+| [azurerm_monitor_diagnostic_setting.webapp](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/monitor_diagnostic_setting) | resource |
 | [azurerm_resource_group.rg](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/resource_group) | resource |
+| [azurerm_application_insights.ai](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/data-sources/application_insights) | data source |
 | [azurerm_key_vault.kv](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/data-sources/key_vault) | data source |
 | [azurerm_key_vault_secret.atlassian_token](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/data-sources/key_vault_secret) | data source |
 | [azurerm_key_vault_secret.atlassian_url](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/data-sources/key_vault_secret) | data source |
 | [azurerm_key_vault_secret.atlassian_user](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/data-sources/key_vault_secret) | data source |
 | [azurerm_key_vault_secret.github_token](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/data-sources/key_vault_secret) | data source |
+| [azurerm_log_analytics_workspace.law](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/data-sources/log_analytics_workspace) | data source |
 | [azurerm_private_dns_zone.azurewebsite](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/data-sources/private_dns_zone) | data source |
 
 ## Inputs
@@ -42,6 +45,8 @@
 | <a name="input_api_management_rg"></a> [api\_management\_rg](#input\_api\_management\_rg) | Resource group of the existing APIM instance. | `string` | `""` | no |
 | <a name="input_api_path"></a> [api\_path](#input\_api\_path) | Base path exposed on APIM for this service. | `string` | `"payment-release-notes"` | no |
 | <a name="input_apim_hostname"></a> [apim\_hostname](#input\_apim\_hostname) | Public gateway hostname of the APIM instance (used in the OpenAPI spec). | `string` | `""` | no |
+| <a name="input_application_insights_name"></a> [application\_insights\_name](#input\_application\_insights\_name) | Name of the existing Application Insights instance used for app telemetry. | `string` | n/a | yes |
+| <a name="input_application_insights_resource_group_name"></a> [application\_insights\_resource\_group\_name](#input\_application\_insights\_resource\_group\_name) | Resource group of the existing Application Insights instance. | `string` | n/a | yes |
 | <a name="input_azure_website_dns_zone_name"></a> [azure\_website\_dns\_zone\_name](#input\_azure\_website\_dns\_zone\_name) | n/a | `string` | n/a | yes |
 | <a name="input_copilot_model"></a> [copilot\_model](#input\_copilot\_model) | Model ID for the GitHub Copilot / Models API. | `string` | `"openai/gpt-4.1"` | no |
 | <a name="input_department_name"></a> [department\_name](#input\_department\_name) | Department name printed in the release notes document. | `string` | n/a | yes |
@@ -58,6 +63,8 @@
 | <a name="input_llm_provider"></a> [llm\_provider](#input\_llm\_provider) | LLM provider: copilot \| openai \| anthropic | `string` | `"copilot"` | no |
 | <a name="input_location"></a> [location](#input\_location) | n/a | `string` | n/a | yes |
 | <a name="input_location_short"></a> [location\_short](#input\_location\_short) | Location short for italy: itn | `string` | `"itn"` | no |
+| <a name="input_log_analytics_workspace_name"></a> [log\_analytics\_workspace\_name](#input\_log\_analytics\_workspace\_name) | Name of the existing Log Analytics Workspace where webapp diagnostic logs are sent. | `string` | n/a | yes |
+| <a name="input_log_analytics_workspace_resource_group_name"></a> [log\_analytics\_workspace\_resource\_group\_name](#input\_log\_analytics\_workspace\_resource\_group\_name) | Resource group of the existing Log Analytics Workspace. | `string` | n/a | yes |
 | <a name="input_log_level"></a> [log\_level](#input\_log\_level) | Python log level: DEBUG \| INFO \| WARNING \| ERROR | `string` | `"INFO"` | no |
 | <a name="input_prefix"></a> [prefix](#input\_prefix) | n/a | `string` | n/a | yes |
 | <a name="input_private_dns_zone_blob_ids"></a> [private\_dns\_zone\_blob\_ids](#input\_private\_dns\_zone\_blob\_ids) | n/a | `list(string)` | n/a | yes |
