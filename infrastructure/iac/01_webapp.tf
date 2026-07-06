@@ -58,6 +58,8 @@ module "webapp" {
     # Azure Storage — async job blob + queue
     AzureWebJobsStorage = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault_secret.connection_string.versionless_id})"
 
+    APPLICATIONINSIGHTS_CONNECTION_STRING = data.azurerm_application_insights.ai.connection_string
+
     # Atlassian — optional (JIRA & Confluence export)
     ATLASSIAN_URL   = "@Microsoft.KeyVault(SecretUri=${data.azurerm_key_vault_secret.atlassian_url.versionless_id})"
     ATLASSIAN_USER  = "@Microsoft.KeyVault(SecretUri=${data.azurerm_key_vault_secret.atlassian_user.versionless_id})"

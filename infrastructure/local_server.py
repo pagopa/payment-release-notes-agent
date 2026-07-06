@@ -2,6 +2,7 @@
 
 import logging
 import os
+import sys
 import tempfile
 import threading
 import time
@@ -11,13 +12,51 @@ from datetime import datetime, timedelta, timezone
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 
-logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
+logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"), stream=sys.stdout)
 logger = logging.getLogger(__name__)
 
 BLOB_CONTAINER     = "release-notes"
 _STALE_JOB_MINUTES = int(os.getenv("STALE_JOB_MINUTES", "20"))
 
 app = FastAPI(title="Release Notes Agent")
+
+
+# ── Observability ───────────────────────────────────────────────────────────────
+
+def _configure_azure_monitor() -> None:
+    """Wire the app to Application Insights when a connection string is present.
+
+    Reads APPLICATIONINSIGHTS_CONNECTION_STRING (injected as an app setting on
+    Azure). configure_azure_monitor() also routes standard Python logging to
+    App Insights, so logger/print output becomes queryable telemetry there — in
+    addition to the container stdout that already flows to Log Analytics via the
+    diagnostic setting. No-op locally when the variable is unset, and never fatal.
+    """
+    conn = os.environ.get("APPLICATIONINSIGHTS_CONNECTION_STRING")
+    if not conn:
+        logger.info("APPLICATIONINSIGHTS_CONNECTION_STRING not set — Azure Monitor disabled")
+        return
+    try:
+        from azure.monitor.opentelemetry import configure_azure_monitor
+        configure_azure_monitor(connection_string=conn)
+        for _noisy in (
+            "azure",
+            "azure.core.pipeline.policies.http_logging_policy",
+            "azure.monitor.opentelemetry",
+            "opentelemetry",
+        ):
+            logging.getLogger(_noisy).setLevel(logging.WARNING)
+        try:
+            from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+            FastAPIInstrumentor.instrument_app(app)
+        except Exception:
+            logger.exception("FastAPI OpenTelemetry instrumentation failed — traces disabled")
+        logger.info("Azure Monitor (Application Insights) instrumentation enabled")
+    except Exception:
+        logger.exception("Failed to configure Azure Monitor — continuing without it")
+
+
+_configure_azure_monitor()
 
 
 # ── Startup ───────────────────────────────────────────────────────────────────
@@ -219,9 +258,9 @@ def _do_generate(
         atlassian = config.atlassian
 
         with tempfile.TemporaryDirectory() as tmpdir:
+            # Per-job path kept local — never routed through the shared global
+            # config, which would race across concurrent worker threads.
             pdf_path = os.path.join(tmpdir, f"release_notes_{pr_number}.pdf")
-            config.pdf.output_path = pdf_path
-            config.pdf.enabled = True
 
             # ── Agente + dati GitHub: riusa quelli preparati sincronamente ─────
             if agent is None:
@@ -267,7 +306,7 @@ def _do_generate(
             _log(job_id, "LLM enrichment done", conn_str=conn_str)
 
             # ── Export PDF/JSON ────────────────────────────────────────────────
-            result = agent.export_release_notes(release_notes)
+            result = agent.export_release_notes(release_notes, output_path=pdf_path)
             _log(job_id, "export done: %s", list(result.keys()), conn_str=conn_str)
 
             actual_pdf = result["pdf"]

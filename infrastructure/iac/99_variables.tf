@@ -168,3 +168,26 @@ variable "kv_name" {
   type        = string
   description = "Name of the existing Key Vault instance."
 }
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Monitoring
+# ─────────────────────────────────────────────────────────────────────────────
+variable "log_analytics_workspace_name" {
+  type        = string
+  description = "Name of the existing Log Analytics Workspace where webapp diagnostic logs are sent."
+}
+
+variable "log_analytics_workspace_resource_group_name" {
+  type        = string
+  description = "Resource group of the existing Log Analytics Workspace."
+}
+
+variable "application_insights_name" {
+  type        = string
+  description = "Name of the existing Application Insights instance used for app telemetry."
+}
+
+variable "application_insights_resource_group_name" {
+  type        = string
+  description = "Resource group of the existing Application Insights instance."
+}

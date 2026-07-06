@@ -148,12 +148,12 @@ class EnhancedReleaseNotesAgent:
             logger.exception(f"Failed to resolve CODEOWNERS for {repo_full_name}")
             return []
 
-    def export_release_notes(self, release_notes: ReleaseNotes) -> dict:
+    def export_release_notes(self, release_notes: ReleaseNotes, output_path: Optional[str] = None) -> dict:
         """Phase 3 — export the (enriched) ReleaseNotes to PDF + JSON."""
         logger.info("Exporting to PDF...")
-        pdf_path = self.pdf_exporter.export(release_notes, config.pdf.output_path)
+        pdf_path = self.pdf_exporter.export(release_notes, output_path)
 
-        json_path = config.pdf.output_path.replace(".pdf", ".json")
+        json_path = output_path.replace(".pdf", ".json")
         with open(json_path, "w") as f:
             json.dump(release_notes.to_dict(), f, indent=2, default=str)
 

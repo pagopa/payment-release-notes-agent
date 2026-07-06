@@ -3,14 +3,14 @@
 ## Requirements
 
 | Name | Version |
-| ---- | ------- |
+|------|---------|
 | <a name="requirement_terraform"></a> [terraform](#requirement\_terraform) | >=1.9.8 |
 | <a name="requirement_azurerm"></a> [azurerm](#requirement\_azurerm) | ~> 4.0 |
 
 ## Modules
 
 | Name | Source | Version |
-| ---- | ------ | ------- |
+|------|--------|---------|
 | <a name="module_apim_api_payment_release_notes_v1"></a> [apim\_api\_payment\_release\_notes\_v1](#module\_apim\_api\_payment\_release\_notes\_v1) | git::https://github.com/pagopa/terraform-azurerm-v4.git//api_management_api | 7787f9ec0d71db411ebab613d7731a4286210c30 |
 | <a name="module_storage"></a> [storage](#module\_storage) | git::https://github.com/pagopa/terraform-azurerm-v4.git//IDH/storage_account | 7787f9ec0d71db411ebab613d7731a4286210c30 |
 | <a name="module_webapp"></a> [webapp](#module\_webapp) | git::https://github.com/pagopa/terraform-azurerm-v4.git//IDH/app_service_webapp | 7787f9ec0d71db411ebab613d7731a4286210c30 |
@@ -18,30 +18,35 @@
 ## Resources
 
 | Name | Type |
-| ---- | ---- |
+|------|------|
 | [azurerm_api_management_api_version_set.payment_release_notes](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/api_management_api_version_set) | resource |
 | [azurerm_api_management_product.payment_release_notes](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/api_management_product) | resource |
 | [azurerm_api_management_subscription.payment_release_notes](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/api_management_subscription) | resource |
 | [azurerm_key_vault_access_policy.permissions](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/key_vault_access_policy) | resource |
 | [azurerm_key_vault_secret.apim_subscription_key](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/key_vault_secret) | resource |
 | [azurerm_key_vault_secret.connection_string](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/key_vault_secret) | resource |
+| [azurerm_monitor_diagnostic_setting.webapp](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/monitor_diagnostic_setting) | resource |
 | [azurerm_resource_group.rg](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/resource_group) | resource |
+| [azurerm_application_insights.ai](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/data-sources/application_insights) | data source |
 | [azurerm_key_vault.kv](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/data-sources/key_vault) | data source |
 | [azurerm_key_vault_secret.atlassian_token](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/data-sources/key_vault_secret) | data source |
 | [azurerm_key_vault_secret.atlassian_url](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/data-sources/key_vault_secret) | data source |
 | [azurerm_key_vault_secret.atlassian_user](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/data-sources/key_vault_secret) | data source |
 | [azurerm_key_vault_secret.github_token](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/data-sources/key_vault_secret) | data source |
+| [azurerm_log_analytics_workspace.law](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/data-sources/log_analytics_workspace) | data source |
 | [azurerm_private_dns_zone.azurewebsite](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/data-sources/private_dns_zone) | data source |
 
 ## Inputs
 
 | Name | Description | Type | Default | Required |
-| ---- | ----------- | ---- | ------- | :------: |
+|------|-------------|------|---------|:--------:|
 | <a name="input_allowed_subnet_ids"></a> [allowed\_subnet\_ids](#input\_allowed\_subnet\_ids) | n/a | `list(string)` | n/a | yes |
 | <a name="input_api_management_name"></a> [api\_management\_name](#input\_api\_management\_name) | Name of the existing APIM instance. Leave empty to skip APIM resources. | `string` | `""` | no |
 | <a name="input_api_management_rg"></a> [api\_management\_rg](#input\_api\_management\_rg) | Resource group of the existing APIM instance. | `string` | `""` | no |
 | <a name="input_api_path"></a> [api\_path](#input\_api\_path) | Base path exposed on APIM for this service. | `string` | `"payment-release-notes"` | no |
 | <a name="input_apim_hostname"></a> [apim\_hostname](#input\_apim\_hostname) | Public gateway hostname of the APIM instance (used in the OpenAPI spec). | `string` | `""` | no |
+| <a name="input_application_insights_name"></a> [application\_insights\_name](#input\_application\_insights\_name) | Name of the existing Application Insights instance used for app telemetry. | `string` | n/a | yes |
+| <a name="input_application_insights_resource_group_name"></a> [application\_insights\_resource\_group\_name](#input\_application\_insights\_resource\_group\_name) | Resource group of the existing Application Insights instance. | `string` | n/a | yes |
 | <a name="input_azure_website_dns_zone_name"></a> [azure\_website\_dns\_zone\_name](#input\_azure\_website\_dns\_zone\_name) | n/a | `string` | n/a | yes |
 | <a name="input_copilot_model"></a> [copilot\_model](#input\_copilot\_model) | Model ID for the GitHub Copilot / Models API. | `string` | `"openai/gpt-4.1"` | no |
 | <a name="input_department_name"></a> [department\_name](#input\_department\_name) | Department name printed in the release notes document. | `string` | n/a | yes |
@@ -58,6 +63,8 @@
 | <a name="input_llm_provider"></a> [llm\_provider](#input\_llm\_provider) | LLM provider: copilot \| openai \| anthropic | `string` | `"copilot"` | no |
 | <a name="input_location"></a> [location](#input\_location) | n/a | `string` | n/a | yes |
 | <a name="input_location_short"></a> [location\_short](#input\_location\_short) | Location short for italy: itn | `string` | `"itn"` | no |
+| <a name="input_log_analytics_workspace_name"></a> [log\_analytics\_workspace\_name](#input\_log\_analytics\_workspace\_name) | Name of the existing Log Analytics Workspace where webapp diagnostic logs are sent. | `string` | n/a | yes |
+| <a name="input_log_analytics_workspace_resource_group_name"></a> [log\_analytics\_workspace\_resource\_group\_name](#input\_log\_analytics\_workspace\_resource\_group\_name) | Resource group of the existing Log Analytics Workspace. | `string` | n/a | yes |
 | <a name="input_log_level"></a> [log\_level](#input\_log\_level) | Python log level: DEBUG \| INFO \| WARNING \| ERROR | `string` | `"INFO"` | no |
 | <a name="input_prefix"></a> [prefix](#input\_prefix) | n/a | `string` | n/a | yes |
 | <a name="input_private_dns_zone_blob_ids"></a> [private\_dns\_zone\_blob\_ids](#input\_private\_dns\_zone\_blob\_ids) | n/a | `list(string)` | n/a | yes |
