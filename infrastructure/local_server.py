@@ -2,6 +2,7 @@
 
 import logging
 import os
+import sys
 import tempfile
 import threading
 import time
@@ -11,7 +12,7 @@ from datetime import datetime, timedelta, timezone
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 
-logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
+logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"), stream=sys.stdout)
 logger = logging.getLogger(__name__)
 
 BLOB_CONTAINER     = "release-notes"
