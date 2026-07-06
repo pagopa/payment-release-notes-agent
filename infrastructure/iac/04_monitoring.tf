@@ -1,12 +1,3 @@
-# ─────────────────────────────────────────────────────────────────────────────
-# Diagnostic settings — route the webapp container logs to Log Analytics.
-#
-# Only the categories NOT already collected by the platform/policy diagnostic
-# setting are enabled here (console/HTTP/platform). Audit, antivirus and metrics
-# are intentionally left out: Azure rejects sending the same category to the
-# same workspace from two different diagnostic settings.
-# ─────────────────────────────────────────────────────────────────────────────
-
 resource "azurerm_monitor_diagnostic_setting" "webapp" {
   name                       = "${local.project}-app-diag"
   target_resource_id         = module.webapp.id
