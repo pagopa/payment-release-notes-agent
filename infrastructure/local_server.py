@@ -38,6 +38,13 @@ def _configure_azure_monitor() -> None:
     try:
         from azure.monitor.opentelemetry import configure_azure_monitor
         configure_azure_monitor(connection_string=conn)
+        for _noisy in (
+            "azure",
+            "azure.core.pipeline.policies.http_logging_policy",
+            "azure.monitor.opentelemetry",
+            "opentelemetry",
+        ):
+            logging.getLogger(_noisy).setLevel(logging.WARNING)
         try:
             from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
             FastAPIInstrumentor.instrument_app(app)
