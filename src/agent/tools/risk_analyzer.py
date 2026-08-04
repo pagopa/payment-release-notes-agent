@@ -181,17 +181,3 @@ class RiskAnalyzer:
                     break
         return components if components else [ComponentType.OTHER]
 
-    def get_overall_risk(self, changes: List[Change]) -> RiskLevel:
-        """Calculate overall risk level for all changes."""
-        if not changes:
-            return RiskLevel.LOW
-
-        risk_levels = [c.risk_assessment.risk_level for c in changes if c.risk_assessment]
-
-        if RiskLevel.CRITICAL in risk_levels:
-            return RiskLevel.CRITICAL
-        elif RiskLevel.HIGH in risk_levels:
-            return RiskLevel.HIGH
-        elif RiskLevel.MEDIUM in risk_levels:
-            return RiskLevel.MEDIUM
-        return RiskLevel.LOW

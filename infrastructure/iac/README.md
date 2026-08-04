@@ -32,6 +32,7 @@
 | [azurerm_key_vault_secret.atlassian_token](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/data-sources/key_vault_secret) | data source |
 | [azurerm_key_vault_secret.atlassian_url](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/data-sources/key_vault_secret) | data source |
 | [azurerm_key_vault_secret.atlassian_user](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/data-sources/key_vault_secret) | data source |
+| [azurerm_key_vault_secret.copilot_github_token](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/data-sources/key_vault_secret) | data source |
 | [azurerm_key_vault_secret.github_token](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/data-sources/key_vault_secret) | data source |
 | [azurerm_log_analytics_workspace.law](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/data-sources/log_analytics_workspace) | data source |
 | [azurerm_private_dns_zone.azurewebsite](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/data-sources/private_dns_zone) | data source |
@@ -48,7 +49,7 @@
 | <a name="input_application_insights_name"></a> [application\_insights\_name](#input\_application\_insights\_name) | Name of the existing Application Insights instance used for app telemetry. | `string` | n/a | yes |
 | <a name="input_application_insights_resource_group_name"></a> [application\_insights\_resource\_group\_name](#input\_application\_insights\_resource\_group\_name) | Resource group of the existing Application Insights instance. | `string` | n/a | yes |
 | <a name="input_azure_website_dns_zone_name"></a> [azure\_website\_dns\_zone\_name](#input\_azure\_website\_dns\_zone\_name) | n/a | `string` | n/a | yes |
-| <a name="input_copilot_model"></a> [copilot\_model](#input\_copilot\_model) | Model ID for the GitHub Copilot / Models API. | `string` | `"openai/gpt-4.1"` | no |
+| <a name="input_copilot_model"></a> [copilot\_model](#input\_copilot\_model) | n/a | `string` | `"claude-sonnet-5"` | no |
 | <a name="input_department_name"></a> [department\_name](#input\_department\_name) | Department name printed in the release notes document. | `string` | n/a | yes |
 | <a name="input_docker_image_tag"></a> [docker\_image\_tag](#input\_docker\_image\_tag) | Docker image tag to deploy. | `string` | `"latest"` | no |
 | <a name="input_document_language"></a> [document\_language](#input\_document\_language) | Language for the generated document. | `string` | `"Italian"` | no |
@@ -60,7 +61,7 @@
 | <a name="input_internal_dns_zone_resource_group_name"></a> [internal\_dns\_zone\_resource\_group\_name](#input\_internal\_dns\_zone\_resource\_group\_name) | n/a | `string` | n/a | yes |
 | <a name="input_kv_name"></a> [kv\_name](#input\_kv\_name) | Name of the existing Key Vault instance. | `string` | n/a | yes |
 | <a name="input_kv_resource_group_name"></a> [kv\_resource\_group\_name](#input\_kv\_resource\_group\_name) | Resource group of the existing Key Vault instance. | `string` | n/a | yes |
-| <a name="input_llm_provider"></a> [llm\_provider](#input\_llm\_provider) | LLM provider: copilot \| openai \| anthropic | `string` | `"copilot"` | no |
+| <a name="input_llm_provider"></a> [llm\_provider](#input\_llm\_provider) | LLM provider: copilot\_sdk \| openai \| anthropic. The 'copilot' (GitHub Models, retired 2026-07-30) and 'copilot\_cli' (npm binary, needs a Node runtime the image no longer ships) providers have been removed. | `string` | `"copilot_sdk"` | no |
 | <a name="input_location"></a> [location](#input\_location) | n/a | `string` | n/a | yes |
 | <a name="input_location_short"></a> [location\_short](#input\_location\_short) | Location short for italy: itn | `string` | `"itn"` | no |
 | <a name="input_log_analytics_workspace_name"></a> [log\_analytics\_workspace\_name](#input\_log\_analytics\_workspace\_name) | Name of the existing Log Analytics Workspace where webapp diagnostic logs are sent. | `string` | n/a | yes |

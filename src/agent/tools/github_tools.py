@@ -101,11 +101,6 @@ class GitHubTools:
             logger.error(f"Error fetching PR files: {e}")
             raise
     
-    def get_pr_files_dict(self, owner: str, repo: str, pr_number: int) -> List[Dict]:
-        """Get files changed in a PR (dict format for backward compatibility)"""
-        files = self.get_pr_files(owner, repo, pr_number)
-        return [f.to_dict() for f in files]
-
     _CODEOWNERS_PATHS = ("CODEOWNERS", ".github/CODEOWNERS", "docs/CODEOWNERS")
 
     def get_codeowners(self, owner: str, repo: str) -> Optional[str]:

@@ -50,10 +50,16 @@ module "webapp" {
     WEBSITES_PORT    = "8000"
     PYTHONUNBUFFERED = "1"
 
-    # GitHub / LLM
-    GITHUB_TOKEN  = "@Microsoft.KeyVault(SecretUri=${data.azurerm_key_vault_secret.github_token.versionless_id})"
-    LLM_PROVIDER  = var.llm_provider
-    COPILOT_MODEL = var.copilot_model
+    # GitHub — classic PAT, used for the REST API (PR data, CODEOWNERS)
+    GITHUB_TOKEN = "@Microsoft.KeyVault(SecretUri=${data.azurerm_key_vault_secret.github_token.versionless_id})"
+
+    # LLM — Copilot SDK. COPILOT_GITHUB_TOKEN must be a fine-grained PAT with
+    # the "Copilot Requests" permission; the classic GITHUB_TOKEN above is not
+    # accepted by Copilot and the adapter deliberately strips it from the
+    # runtime's environment so it can never be picked up by mistake.
+    LLM_PROVIDER         = var.llm_provider
+    COPILOT_GITHUB_TOKEN = "@Microsoft.KeyVault(SecretUri=${data.azurerm_key_vault_secret.copilot_github_token.versionless_id})"
+    COPILOT_MODEL        = var.copilot_model
 
     # Azure Storage — async job blob + queue
     AzureWebJobsStorage = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault_secret.connection_string.versionless_id})"

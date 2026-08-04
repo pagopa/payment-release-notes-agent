@@ -143,6 +143,9 @@ def enqueue_generate(body: dict):
         except Exception as exc:
             # Fallback: il worker creerà e aggiornerà la pagina in modo asincrono
             logger.exception("Synchronous Confluence placeholder creation failed: %s", exc)
+            # The discarded agent may already hold an LLM runtime; the worker
+            # will build its own, so release this one instead of orphaning it.
+            _release_llm_runtimes(agent)
             agent = release_notes = gh_context = None
             placeholder_created = False
 
@@ -216,6 +219,27 @@ def _log(job_id: str, msg: str, *args, conn_str: str = None) -> None:
             _upload_blob(conn_str, f"{job_id}.pending", line.encode())
         except Exception:
             pass
+
+
+def _release_llm_runtimes(agent) -> None:
+    """Shut down any long-lived LLM runtime the agent is holding.
+
+    The copilot_sdk provider starts a runtime child process on first use and
+    reuses it for every section. This server is long-running and serves many
+    jobs, so without an explicit release we would accumulate one runtime per
+    job — the adapter's atexit hook never fires here because the process never
+    exits. Providers that hold nothing (openai, anthropic) expose no close()
+    and are skipped.
+    """
+    if agent is None:
+        return
+    generator = getattr(agent, "document_generator", None)
+    closer = getattr(getattr(generator, "llm", None), "close", None)
+    if callable(closer):
+        try:
+            closer()
+        except Exception:
+            logger.exception("Failed to close LLM runtime — continuing")
 
 
 def _do_generate(
@@ -377,6 +401,7 @@ def _do_generate(
 
     finally:
         stop_heartbeat.set()
+        _release_llm_runtimes(agent)
 
 
 # ── Blob helpers ──────────────────────────────────────────────────────────────

@@ -56,3 +56,10 @@ htmlcov/
 
 **/.terraform/*
 .terraform.lock.hcl
+
+# Local run artifacts — `docker compose run generate/spike` writes here
+out/
+spike-out/
+spike.json
+
+.scripts
