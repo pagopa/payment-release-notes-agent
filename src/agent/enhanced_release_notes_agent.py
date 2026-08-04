@@ -3,7 +3,7 @@
 import json
 import logging
 from datetime import datetime
-from typing import List, Optional
+from typing import List
 
 from src.config import config
 from src.models import ReleaseNotes
@@ -24,7 +24,7 @@ class EnhancedReleaseNotesAgent:
     def __init__(self):
         config.validate()
         self.github_tools = GitHubTools(config.github.token)
-        self.analysis_tools = AnalysisTools(config.llm)
+        self.analysis_tools = AnalysisTools()
         self.document_generator = DocumentGenerator(
             llm_config=config.llm,
             language=config.llm.document_language,
@@ -148,8 +148,13 @@ class EnhancedReleaseNotesAgent:
             logger.exception(f"Failed to resolve CODEOWNERS for {repo_full_name}")
             return []
 
-    def export_release_notes(self, release_notes: ReleaseNotes, output_path: Optional[str] = None) -> dict:
-        """Phase 3 — export the (enriched) ReleaseNotes to PDF + JSON."""
+    def export_release_notes(self, release_notes: ReleaseNotes, output_path: str) -> dict:
+        """Phase 3 — export the (enriched) ReleaseNotes to PDF + JSON.
+
+        *output_path* is required: the JSON sibling is derived from it, and the
+        callers all run concurrently, so the path must be per-job rather than
+        taken from shared config.
+        """
         logger.info("Exporting to PDF...")
         pdf_path = self.pdf_exporter.export(release_notes, output_path)
 
@@ -163,14 +168,3 @@ class EnhancedReleaseNotesAgent:
             "json": json_path,
             "release_notes": release_notes,
         }
-
-    def generate_and_export(self, pr_url: str, version: str) -> dict:
-
-        logger.info(f"Starting enhanced release notes generation for {pr_url}")
-        release_notes, context = self.prepare_release_notes(pr_url, version)
-        self.enrich_release_notes(release_notes, context)
-        return self.export_release_notes(release_notes)
-
-    def process_pr_url(self, pr_url: str, version: Optional[str] = None) -> ReleaseNotes:
-        result = self.generate_and_export(pr_url, version or config.release.version)
-        return result["release_notes"]

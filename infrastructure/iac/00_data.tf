@@ -12,6 +12,18 @@ data "azurerm_key_vault_secret" "github_token" {
   key_vault_id = data.azurerm_key_vault.kv.id
 }
 
+# Distinct from github-token above. That one is the classic PAT used for the
+# GitHub REST API; Copilot rejects classic ghp_ tokens outright, so the LLM
+# path needs a *fine-grained* PAT carrying the "Copilot Requests" ACCOUNT
+# permission — which GitHub only offers when the resource owner is a personal
+# account. Consequence to keep in mind operationally: this credential is tied
+# to an individual's Copilot licence and expires, so it needs a named owner
+# and a rotation reminder.
+data "azurerm_key_vault_secret" "copilot_github_token" {
+  name         = "copilot-github-token"
+  key_vault_id = data.azurerm_key_vault.kv.id
+}
+
 data "azurerm_key_vault_secret" "atlassian_token" {
   name         = "atlassian-token"
   key_vault_id = data.azurerm_key_vault.kv.id

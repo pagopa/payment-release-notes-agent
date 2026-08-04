@@ -1,0 +1,26 @@
+# The Dockerfile only ever COPYs requirements.txt, src/, cicd_contexts/ and
+# infrastructure/local_server.py. Everything else is context sent to the daemon
+# for nothing — .venv alone is ~105 MB, paid on every build.
+.venv/
+.git/
+.github/
+.idea/
+.claude/
+__pycache__/
+**/__pycache__/
+*.pyc
+
+# Terraform state and provider plugins (hundreds of MB under .terraform/)
+infrastructure/iac/
+
+# Local run artifacts and anything dot-prefixed and personal
+out/
+spike-out/
+spike.json
+.scripts/
+
+# Secrets must never enter the build context: an ARG/ENV leak or a stray COPY
+# would bake them into a layer.
+.env
+.env.*
+!.env.example

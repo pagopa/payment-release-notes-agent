@@ -71,14 +71,24 @@ variable "docker_image_tag" {
 
 variable "llm_provider" {
   type        = string
-  description = "LLM provider: copilot | openai | anthropic"
-  default     = "copilot"
+  description = "LLM provider: copilot_sdk | openai | anthropic. The 'copilot' (GitHub Models, retired 2026-07-30) and 'copilot_cli' (npm binary, needs a Node runtime the image no longer ships) providers have been removed."
+  default     = "copilot_sdk"
+
+  validation {
+    condition     = contains(["copilot_sdk", "openai", "anthropic"], var.llm_provider)
+    error_message = "llm_provider must be one of: copilot_sdk, openai, anthropic. 'copilot' and 'copilot_cli' have been removed."
+  }
 }
 
 variable "copilot_model" {
   type        = string
-  description = "Model ID for the GitHub Copilot / Models API."
-  default     = "openai/gpt-4.1"
+  description = "Model the Copilot agent should use, unprefixed (e.g. claude-sonnet-5). Empty string keeps the Copilot default."
+  default     = ""
+
+  validation {
+    condition     = !strcontains(var.copilot_model, "/")
+    error_message = "copilot_model must be unprefixed. A publisher-prefixed id such as 'openai/gpt-4.1' is a leftover GitHub Models value and Copilot rejects it."
+  }
 }
 
 

@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import re
+import tempfile
 import time
 import traceback
 from typing import List
@@ -37,6 +38,176 @@ def _is_reasoning_model(model: str) -> bool:
     if "reasoning" in name or name.startswith("deepseek-r"):
         return True
     return False
+
+
+
+
+def create_copilot_sdk_llm(llm_config):
+    """Adapter around the official `github-copilot-sdk` Python package.
+
+    This reaches the same Copilot agent the `copilot` CLI would, but:
+
+      * it is a single runtime installed with pip. The SDK downloads a
+        self-contained native binary (Node is bundled inside it), so there is no
+        Node or npm to provision — the Dockerfile bakes that binary at build
+        time, see COPILOT_CLI_EXTRACT_DIR there;
+      * the runtime starts ONCE and the session is reused across sections,
+        instead of paying process startup on every call (measured against the
+        npm CLI: ~7s per subprocess vs ~3s once, then ~1s per call);
+      * the reply arrives as a structured AssistantMessageData whose `.content`
+        is the model's text — no stdout scraping, no code fences, no narration
+        to regex around.
+
+    The SDK API is async and this codebase is synchronous (calls happen inside
+    per-job worker threads), so the adapter owns a private event loop on a
+    daemon thread and dispatches coroutines onto it.
+
+    Startup is LAZY: nothing is spawned until the first invoke(), so importing
+    or constructing the adapter costs nothing and a job that never reaches the
+    enrichment phase never pays for a runtime.
+
+    Long-running hosts MUST call close() when a job finishes — see the note on
+    _close_at_exit for why the atexit hook is not a substitute.
+    """
+    import asyncio
+    import atexit
+    import threading
+
+    try:
+        import copilot as copilot_sdk
+    except ImportError as exc:
+        raise ValueError(
+            "Provider 'copilot_sdk' requires the official SDK: "
+            "`pip install github-copilot-sdk` followed by "
+            "`python -m copilot download-runtime`."
+        ) from exc
+
+    cfg = llm_config
+
+    class CopilotSDKLLM:
+        def __init__(self):
+            self.token = cfg.copilot_token
+            self.model = cfg.copilot_model or None
+            self.workdir = cfg.copilot_workdir or os.path.join(
+                tempfile.gettempdir(), "copilot-sdk-workdir")
+            self._loop = None
+            self._thread = None
+            self._client = None
+            self._session = None
+            self._lock = threading.Lock()
+
+        # ── lifecycle ────────────────────────────────────────────────────────
+        def _ensure_started(self):
+            with self._lock:
+                if self._session is not None:
+                    return
+                os.makedirs(self.workdir, exist_ok=True)
+
+                self._loop = asyncio.new_event_loop()
+                self._thread = threading.Thread(
+                    target=self._loop.run_forever, daemon=True, name="copilot-sdk-loop")
+                self._thread.start()
+
+                async def _boot():
+                    client = copilot_sdk.CopilotClient(
+                        github_token=self.token or None,
+                        # Only fall back to a machine login when no token is set;
+                        # in a container there is none, so this must be explicit.
+                        use_logged_in_user=not bool(self.token),
+                        working_directory=self.workdir,
+                        log_level="error",
+                    )
+                    await client.start()
+                    session = await client.create_session(
+                        model=self.model,
+                        available_tools=[],   # pure text transformation, no tools
+                        streaming=False,
+                    )
+                    return client, session
+
+                t0 = time.time()
+                self._client, self._session = self._run(_boot(), timeout=180)
+                auth = ("COPILOT_GITHUB_TOKEN (machine login disabled)"
+                        if self.token else "interactive copilot login")
+                print(f"[LLM] copilot_sdk: runtime started in {time.time()-t0:.1f}s "
+                      f"| auth={auth} | model={self.model or '<default>'} "
+                      f"(reused for all subsequent sections)", flush=True)
+                atexit.register(self._close_at_exit)
+
+        def _run(self, coro, timeout):
+            return asyncio.run_coroutine_threadsafe(coro, self._loop).result(timeout)
+
+        def close(self, graceful: bool = True):
+            """Release the runtime. Safe to call more than once.
+
+            `graceful=False` skips the JSON-RPC shutdown handshake — see
+            _close_at_exit for why that matters.
+            """
+            with self._lock:
+                client, loop = self._client, self._loop
+                if client is None:
+                    return
+                self._client = self._session = None
+                self._loop = None
+
+            if graceful:
+                try:
+                    asyncio.run_coroutine_threadsafe(client.stop(), loop).result(30)
+                except Exception:
+                    pass
+            if loop is not None:
+                try:
+                    loop.call_soon_threadsafe(loop.stop)
+                except Exception:
+                    pass
+
+        def _close_at_exit(self):
+            """atexit hook: abandon the runtime instead of stopping it politely.
+
+            CPython shuts `threading` down BEFORE running atexit handlers, which
+            tears down the default ThreadPoolExecutor. The SDK's JSON-RPC writer
+            does `loop.run_in_executor(None, write)`, so a graceful stop at this
+            point raises "cannot schedule new futures after shutdown" and dumps a
+            traceback *after* the job already succeeded — pure noise.
+
+            Skipping the handshake leaks nothing: the runtime is a child process
+            and exits with the parent (verified — no orphans remain afterwards).
+            Long-running hosts should still call close() explicitly per job
+            rather than relying on this.
+            """
+            self.close(graceful=False)
+
+        # ── invocation ───────────────────────────────────────────────────────
+        @staticmethod
+        def _extract_text(event) -> str:
+            """Pull the assistant's text out of the returned SessionEvent."""
+            if event is None:
+                raise ValueError("Copilot SDK returned no event (session went idle with no reply)")
+            data = getattr(event, "data", None)
+            content = getattr(data, "content", None)
+            if isinstance(content, str) and content.strip():
+                return content
+            # Some events carry a list of content blocks rather than a plain str.
+            if isinstance(content, list):
+                parts = [getattr(b, "text", None) or (b.get("text") if isinstance(b, dict) else None)
+                         for b in content]
+                joined = "".join(p for p in parts if p)
+                if joined.strip():
+                    return joined
+            raise ValueError(
+                f"Copilot SDK event carried no usable text (event={type(event).__name__}, "
+                f"data={type(data).__name__})"
+            )
+
+        def invoke(self, prompt: str, max_tokens: int = 4096) -> str:
+            self._ensure_started()
+            event = self._run(
+                self._session.send_and_wait(prompt, timeout=_LLM_TIMEOUT_SECONDS),
+                timeout=_LLM_TIMEOUT_SECONDS + 30,
+            )
+            return self._extract_text(event)
+
+    return CopilotSDKLLM()
 
 
 class DocumentGenerator:
@@ -174,8 +345,8 @@ class DocumentGenerator:
 
     def _initialize_llm(self):
         provider = self.llm_config.provider
-        if provider == "copilot":
-            return self._create_copilot_llm()
+        if provider == "copilot_sdk":
+            return create_copilot_sdk_llm(self.llm_config)
         elif provider == "openai":
             try:
                 from openai import OpenAI
@@ -190,51 +361,8 @@ class DocumentGenerator:
                 raise
         raise ValueError(f"Unsupported LLM provider: {provider}")
 
-    def _create_copilot_llm(self):
-        import requests
 
-        class GitHubModelsLLM:
-            API_URL = "https://models.github.ai/inference/chat/completions"
 
-            def __init__(self, token, model):
-                self.token = token
-                self.model = model
-
-            def invoke(self, prompt: str, max_tokens: int = 4096) -> str:
-                is_reasoning = _is_reasoning_model(self.model)
-                payload = {
-                    "model": self.model,
-                    "messages": [{"role": "user", "content": prompt}],
-                }
-                if is_reasoning:
-                    payload["max_completion_tokens"] = max_tokens
-                else:
-                    payload["temperature"] = 0.2
-                    payload["max_tokens"] = max_tokens
-
-                resp = requests.post(
-                    self.API_URL,
-                    headers={
-                        "Authorization": f"Bearer {self.token}",
-                        "Content-Type": "application/json",
-                    },
-                    json=payload,
-                    timeout=_LLM_TIMEOUT_SECONDS,
-                )
-                if resp.status_code == 429:
-                    retry_after = int(resp.headers.get("retry-after", 30))
-                    print(f"[LLM] GitHub Models rate limit hit (429) — waiting {retry_after}s", flush=True)
-                    time.sleep(retry_after)
-                    raise ValueError(f"GitHub Models rate limit (429) — retry-after={retry_after}s")
-                if not resp.ok:
-                    raise ValueError(f"GitHub Models API error {resp.status_code}: {resp.text}")
-                data = resp.json()
-                return data["choices"][0]["message"]["content"]
-
-        return GitHubModelsLLM(
-            token=self.llm_config.github_token,
-            model=self.llm_config.copilot_model,
-        )
 
     # ─── Core LLM caller ──────────────────────────────────────────────────────
 
@@ -269,7 +397,10 @@ class DocumentGenerator:
     def _call_llm_once(self, prompt: str, max_tokens: int = 4096) -> str:
         provider = self.llm_config.provider
 
-        if provider == "copilot":
+        if provider == "copilot_sdk":
+            # max_tokens is accepted for signature parity, but the Copilot agent
+            # exposes no equivalent — surfaced so it is visible in the logs.
+            print(f"[LLM] {provider}: max_tokens={max_tokens} ignored (no equivalent)", flush=True)
             return self.llm.invoke(prompt, max_tokens=max_tokens)
 
         elif provider == "openai":
@@ -298,25 +429,74 @@ class DocumentGenerator:
 
         raise ValueError(f"Unsupported provider: {provider}")
 
+    def _dump_raw(self, section: str, raw: str, outcome: str) -> None:
+        """Persist a raw LLM response for diagnosis. No-op unless LLM_RAW_DUMP_DIR is set.
+
+        Without this, a parse failure is indistinguishable from a transport
+        failure: both end up as {} and then as empty PDF sections, with nothing
+        in the logs explaining which happened.
+        """
+        dump_dir = getattr(self.llm_config, "llm_raw_dump_dir", "")
+        if not dump_dir:
+            return
+        try:
+            os.makedirs(dump_dir, exist_ok=True)
+            stamp = time.strftime("%Y%m%d-%H%M%S")
+            path = os.path.join(dump_dir, f"{stamp}_{section}_{outcome}.txt")
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(raw)
+            print(f"[JSON] section={section} raw dumped to {path}", flush=True)
+        except Exception as exc:  # diagnostics must never break generation
+            logger.warning(f"Could not dump raw LLM output for {section}: {exc}")
+
     def _call_llm_json(self, prompt: str, max_tokens: int = 4096, section: str = "unknown") -> dict:
         raw = self._call_llm(prompt, max_tokens, section=section)
         if not raw:
+            # _call_llm already logged why it gave up.
+            print(f"[JSON] section={section} parsed=false reason=empty_response raw_chars=0", flush=True)
+            self._dump_raw(section, "", "empty")
             return {}
+
+        original = raw
         # Strip markdown code fences if present
         raw = re.sub(r"^```(?:json)?\s*", "", raw.strip())
         raw = re.sub(r"\s*```$", "", raw.strip())
+
         try:
-            return json.loads(raw)
-        except json.JSONDecodeError:
-            # Try to extract the first JSON object/array
-            match = re.search(r"(\{.*\}|\[.*\])", raw, re.DOTALL)
-            if match:
-                try:
-                    return json.loads(match.group(1))
-                except json.JSONDecodeError:
-                    pass
-            logger.warning("LLM returned non-JSON content")
-            return {}
+            parsed = json.loads(raw)
+            print(f"[JSON] section={section} parsed=true method=direct "
+                  f"raw_chars={len(original)} keys={list(parsed)[:8] if isinstance(parsed, dict) else 'array'}",
+                  flush=True)
+            self._dump_raw(section, original, "ok-direct")
+            return parsed
+        except json.JSONDecodeError as exc:
+            direct_err = exc
+
+        # Try to extract the first JSON object/array — this is what rescues a
+        # response wrapped in agent narration (the common Copilot CLI shape).
+        match = re.search(r"(\{.*\}|\[.*\])", raw, re.DOTALL)
+        if match:
+            try:
+                parsed = json.loads(match.group(1))
+                stripped = len(raw) - len(match.group(1))
+                print(f"[JSON] section={section} parsed=true method=extracted "
+                      f"raw_chars={len(original)} narration_chars={stripped} "
+                      f"keys={list(parsed)[:8] if isinstance(parsed, dict) else 'array'}",
+                      flush=True)
+                self._dump_raw(section, original, "ok-extracted")
+                return parsed
+            except json.JSONDecodeError as exc:
+                print(f"[JSON] section={section} parsed=false reason=extract_failed "
+                      f"raw_chars={len(original)} err={exc}", flush=True)
+                self._dump_raw(section, original, "fail-extract")
+                logger.warning(f"LLM returned non-JSON content for section={section}")
+                return {}
+
+        print(f"[JSON] section={section} parsed=false reason=no_json_found "
+              f"raw_chars={len(original)} err={direct_err} head={original[:200]!r}", flush=True)
+        self._dump_raw(section, original, "fail-nojson")
+        logger.warning(f"LLM returned non-JSON content for section={section}")
+        return {}
 
     # ─── Helpers ──────────────────────────────────────────────────────────────
 

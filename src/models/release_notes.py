@@ -245,21 +245,6 @@ class ReleaseNotes:
     pr_labels: List[str] = field(default_factory=list)
     pr_draft: bool = False
     
-    def get_changes_by_category(self, category: ChangeCategory) -> List[Change]:
-        """Get changes by category"""
-        category_map = {
-            ChangeCategory.FEATURE: self.features,
-            ChangeCategory.BUGFIX: self.bugfixes,
-            ChangeCategory.BREAKING: self.breaking_changes,
-            ChangeCategory.PERFORMANCE: self.performance,
-            ChangeCategory.DOCUMENTATION: self.documentation,
-            ChangeCategory.CHORE: self.chores,
-            ChangeCategory.SECURITY: self.security,
-            ChangeCategory.REFACTOR: self.refactoring,
-            ChangeCategory.INFRASTRUCTURE: self.infrastructure,
-        }
-        return category_map.get(category, [])
-    
     def add_change(self, change: Change):
         """Add a change to the appropriate category"""
         self.all_changes.append(change)
