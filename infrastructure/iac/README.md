@@ -49,7 +49,7 @@
 | <a name="input_application_insights_name"></a> [application\_insights\_name](#input\_application\_insights\_name) | Name of the existing Application Insights instance used for app telemetry. | `string` | n/a | yes |
 | <a name="input_application_insights_resource_group_name"></a> [application\_insights\_resource\_group\_name](#input\_application\_insights\_resource\_group\_name) | Resource group of the existing Application Insights instance. | `string` | n/a | yes |
 | <a name="input_azure_website_dns_zone_name"></a> [azure\_website\_dns\_zone\_name](#input\_azure\_website\_dns\_zone\_name) | n/a | `string` | n/a | yes |
-| <a name="input_copilot_model"></a> [copilot\_model](#input\_copilot\_model) | Model the Copilot agent should use, unprefixed (e.g. claude-sonnet-5). Empty string keeps the Copilot default. | `string` | `""` | no |
+| <a name="input_copilot_model"></a> [copilot\_model](#input\_copilot\_model) | n/a | `string` | `"claude-sonnet-5"` | no |
 | <a name="input_department_name"></a> [department\_name](#input\_department\_name) | Department name printed in the release notes document. | `string` | n/a | yes |
 | <a name="input_docker_image_tag"></a> [docker\_image\_tag](#input\_docker\_image\_tag) | Docker image tag to deploy. | `string` | `"latest"` | no |
 | <a name="input_document_language"></a> [document\_language](#input\_document\_language) | Language for the generated document. | `string` | `"Italian"` | no |

@@ -95,6 +95,11 @@ def create_copilot_sdk_llm(llm_config):
             self._client = None
             self._session = None
             self._lock = threading.Lock()
+            # The model that actually served the replies. When self.model is
+            # None, Copilot picks one and can change that pick without any
+            # deploy on our side — so record what came back rather than what we
+            # asked for. Every reply carries it; we log the first one.
+            self._resolved_model = None
 
         # ── lifecycle ────────────────────────────────────────────────────────
         def _ensure_started(self):
@@ -129,8 +134,9 @@ def create_copilot_sdk_llm(llm_config):
                 self._client, self._session = self._run(_boot(), timeout=180)
                 auth = ("COPILOT_GITHUB_TOKEN (machine login disabled)"
                         if self.token else "interactive copilot login")
+                requested = self.model or "<unset — Copilot picks, logged on first reply>"
                 print(f"[LLM] copilot_sdk: runtime started in {time.time()-t0:.1f}s "
-                      f"| auth={auth} | model={self.model or '<default>'} "
+                      f"| auth={auth} | model={requested} "
                       f"(reused for all subsequent sections)", flush=True)
                 atexit.register(self._close_at_exit)
 
@@ -199,12 +205,35 @@ def create_copilot_sdk_llm(llm_config):
                 f"data={type(data).__name__})"
             )
 
+        def _note_model(self, event) -> None:
+            """Record and log the model that served this reply, once per runtime.
+
+            Without this the logs of a finished job never say which model wrote
+            the document — and when COPILOT_MODEL is unset that is not knowable
+            after the fact, since Copilot's own default can shift underneath us.
+            """
+            if self._resolved_model is not None:
+                return
+            served = getattr(getattr(event, "data", None), "model", None)
+            if not served:
+                return
+            self._resolved_model = served
+            if self.model and served != self.model:
+                # Copilot substituted the request (unavailable model, policy).
+                print(f"[LLM] copilot_sdk: WARNING requested model={self.model!r} "
+                      f"but replies are served by {served!r}", flush=True)
+            else:
+                print(f"[LLM] copilot_sdk: replies served by model={served}"
+                      f"{'' if self.model else ' (Copilot default — COPILOT_MODEL is unset)'}",
+                      flush=True)
+
         def invoke(self, prompt: str, max_tokens: int = 4096) -> str:
             self._ensure_started()
             event = self._run(
                 self._session.send_and_wait(prompt, timeout=_LLM_TIMEOUT_SECONDS),
                 timeout=_LLM_TIMEOUT_SECONDS + 30,
             )
+            self._note_model(event)
             return self._extract_text(event)
 
     return CopilotSDKLLM()

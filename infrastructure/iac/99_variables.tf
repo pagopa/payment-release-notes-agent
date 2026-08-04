@@ -81,9 +81,8 @@ variable "llm_provider" {
 }
 
 variable "copilot_model" {
-  type        = string
-  description = "Model the Copilot agent should use, unprefixed (e.g. claude-sonnet-5). Empty string keeps the Copilot default."
-  default     = ""
+  type    = string
+  default = "claude-sonnet-5"
 
   validation {
     condition     = !strcontains(var.copilot_model, "/")
