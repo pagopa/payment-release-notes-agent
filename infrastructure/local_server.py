@@ -18,6 +18,12 @@ logger = logging.getLogger(__name__)
 BLOB_CONTAINER     = "release-notes"
 _STALE_JOB_MINUTES = int(os.getenv("STALE_JOB_MINUTES", "20"))
 
+# Jobs allowed in the LLM phase at the same time; the others wait in line. On a
+# B1 plan (1 vCPU, 1.75 GB) two concurrent generations saturated CPU and memory
+# and every LLM call timed out — serialising them is what keeps them fast.
+_LLM_MAX_CONCURRENT_JOBS = max(1, int(os.getenv("LLM_MAX_CONCURRENT_JOBS", "1")))
+_llm_slots = threading.BoundedSemaphore(_LLM_MAX_CONCURRENT_JOBS)
+
 app = FastAPI(title="Release Notes Agent")
 
 
@@ -135,6 +141,7 @@ def enqueue_generate(body: dict):
                     parent_page=confluence_parent_page or None,
                     page_title=resolved_page_title,
                     placeholder=True,
+                    job_id=job_id,
                 )
                 placeholder_created = True
                 logger.info("Confluence placeholder created synchronously → %s", confluence_page_url)
@@ -143,9 +150,6 @@ def enqueue_generate(body: dict):
         except Exception as exc:
             # Fallback: il worker creerà e aggiornerà la pagina in modo asincrono
             logger.exception("Synchronous Confluence placeholder creation failed: %s", exc)
-            # The discarded agent may already hold an LLM runtime; the worker
-            # will build its own, so release this one instead of orphaning it.
-            _release_llm_runtimes(agent)
             agent = release_notes = gh_context = None
             placeholder_created = False
 
@@ -160,7 +164,7 @@ def enqueue_generate(body: dict):
             "placeholder_created": placeholder_created,
         },
         daemon=True,
-        name=f"job-{job_id[:8]}",
+        name=f"job-{job_id}",
     ).start()
 
     logger.info("Started job %s for %s#%s v%s", job_id, platform, pr_number, version)
@@ -211,7 +215,7 @@ def get_status(job_id: str):
 
 def _log(job_id: str, msg: str, *args, conn_str: str = None) -> None:
     formatted = msg % args if args else msg
-    line = f"[INFO] {formatted}"
+    line = f"[INFO] [job:{job_id}] {formatted}"
     logger.info(line)
     print(line, flush=True)
     if conn_str:
@@ -221,25 +225,10 @@ def _log(job_id: str, msg: str, *args, conn_str: str = None) -> None:
             pass
 
 
-def _release_llm_runtimes(agent) -> None:
-    """Shut down any long-lived LLM runtime the agent is holding.
-
-    The copilot_sdk provider starts a runtime child process on first use and
-    reuses it for every section. This server is long-running and serves many
-    jobs, so without an explicit release we would accumulate one runtime per
-    job — the adapter's atexit hook never fires here because the process never
-    exits. Providers that hold nothing (openai, anthropic) expose no close()
-    and are skipped.
-    """
-    if agent is None:
-        return
-    generator = getattr(agent, "document_generator", None)
-    closer = getattr(getattr(generator, "llm", None), "close", None)
-    if callable(closer):
-        try:
-            closer()
-        except Exception:
-            logger.exception("Failed to close LLM runtime — continuing")
+def _describe_exc(exc: BaseException) -> str:
+    """"TimeoutError: " instead of "" — str() of many exceptions is empty."""
+    text = str(exc).strip()
+    return f"{type(exc).__name__}: {text}" if text else type(exc).__name__
 
 
 def _do_generate(
@@ -247,6 +236,9 @@ def _do_generate(
     jira_issue_key="", confluence_space="", confluence_parent_page="", confluence_page_title="",
     agent=None, release_notes=None, gh_context=None, placeholder_created=False,
 ):
+    from src.job_context import set_job_id
+    set_job_id(job_id)  # tags LLM/JSON log lines of this thread with the job id
+
     pr_url = f"https://github.com/{platform}/pull/{pr_number}"
     _log(job_id, "START %s v%s | jira=%s confluence=%s",
          pr_url, version, jira_issue_key or "—", confluence_space or "—", conn_str=conn_str)
@@ -316,6 +308,7 @@ def _do_generate(
                         parent_page=confluence_parent_page or None,
                         page_title=page_title,
                         placeholder=True,
+                        job_id=job_id,
                     )
                     confluence_ctx["page_url"] = page_url
                     _log(job_id, "Confluence placeholder ready → %s", page_url, conn_str=conn_str)
@@ -325,9 +318,16 @@ def _do_generate(
                 logger.warning("[job:%s] confluence_space provided but ATLASSIAN_URL/USER/TOKEN missing", job_id)
 
             # ── Arricchimento LLM ──────────────────────────────────────────────
-            _log(job_id, "enriching release notes (LLM)...", conn_str=conn_str)
-            agent.enrich_release_notes(release_notes, gh_context)
-            _log(job_id, "LLM enrichment done", conn_str=conn_str)
+            if not _llm_slots.acquire(blocking=False):
+                _log(job_id, "waiting for a free LLM slot (max %d concurrent jobs)...",
+                     _LLM_MAX_CONCURRENT_JOBS, conn_str=conn_str)
+                _llm_slots.acquire()
+            try:
+                _log(job_id, "enriching release notes (LLM)...", conn_str=conn_str)
+                agent.enrich_release_notes(release_notes, gh_context)
+                _log(job_id, "LLM enrichment done", conn_str=conn_str)
+            finally:
+                _llm_slots.release()
 
             # ── Export PDF/JSON ────────────────────────────────────────────────
             result = agent.export_release_notes(release_notes, output_path=pdf_path)
@@ -370,29 +370,20 @@ def _do_generate(
         _log(job_id, "COMPLETED")
 
     except Exception as exc:
-        line = f"[ERROR] FAILED {job_id}: {exc}"
+        error_text = _describe_exc(exc)
+        line = f"[ERROR] [job:{job_id}] FAILED: {error_text}"
         logger.exception(line)
         print(line, flush=True)
 
-        # Se la pagina Confluence placeholder era già stata creata, aggiornala con
-        # una nota di errore invece di lasciarla in stato "Generazione in corso…".
-        if confluence_ctx["exporter"] and confluence_ctx["release_notes"] is not None:
-            try:
-                confluence_ctx["exporter"].export(
-                    release_notes=confluence_ctx["release_notes"],
-                    space=confluence_space,
-                    parent_page=confluence_parent_page or None,
-                    page_title=confluence_ctx["page_title"],
-                    error_message=str(exc),
-                )
-                logger.info("[job:%s] Confluence page updated with error note", job_id)
-            except Exception as conf_exc:
-                logger.error("[job:%s] failed to update Confluence page with error: %s",
-                             job_id, conf_exc)
+        # Aggiorna la pagina Confluence con la nota di errore (job id + query per
+        # Log Analytics) invece di lasciarla in "Generazione in corso…" o vuota.
+        _write_confluence_error(job_id, error_text, confluence_ctx, confluence_space,
+                                confluence_parent_page, platform, pr_number)
 
         for attempt in range(3):
             try:
-                _upload_blob(conn_str, f"{job_id}.error", str(exc).encode())
+                _upload_blob(conn_str, f"{job_id}.error",
+                             f"{error_text} (job_id={job_id})".encode())
                 _delete_blob(conn_str, f"{job_id}.pending")
                 break
             except Exception as upload_exc:
@@ -401,7 +392,39 @@ def _do_generate(
 
     finally:
         stop_heartbeat.set()
-        _release_llm_runtimes(agent)
+        # The Copilot runtime is shared process-wide and deliberately NOT
+        # closed here — see create_copilot_sdk_llm.
+
+
+def _write_confluence_error(job_id, error_text, confluence_ctx, confluence_space,
+                            confluence_parent_page, platform, pr_number) -> None:
+    """Best effort: never let a Confluence failure mask the original error."""
+    if not confluence_space or confluence_ctx["release_notes"] is None:
+        return
+    try:
+        exporter = confluence_ctx["exporter"]
+        if exporter is None:
+            # Il job è fallito prima che il worker preparasse l'exporter: crealo qui.
+            from src.config import config
+            atlassian = config.atlassian
+            if not atlassian.enabled:
+                return
+            from src.agent.exporters.confluence_exporter import ConfluenceExporter
+            exporter = ConfluenceExporter(atlassian.url, atlassian.user, atlassian.token)
+        rn = confluence_ctx["release_notes"]
+        page_title = confluence_ctx["page_title"] or \
+            f"Release Notes — {rn.repo_full_name or platform} PR#{pr_number}"
+        page_url = exporter.export(
+            release_notes=rn,
+            space=confluence_space,
+            parent_page=confluence_parent_page or None,
+            page_title=page_title,
+            error_message=error_text,
+            job_id=job_id,
+        )
+        logger.info("[job:%s] Confluence page updated with error note → %s", job_id, page_url)
+    except Exception:
+        logger.exception("[job:%s] failed to update Confluence page with error", job_id)
 
 
 # ── Blob helpers ──────────────────────────────────────────────────────────────

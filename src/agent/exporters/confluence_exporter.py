@@ -3,7 +3,7 @@
 import html
 import logging
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 logger = logging.getLogger(__name__)
@@ -43,12 +43,14 @@ class ConfluenceExporter:
         page_title: Optional[str] = None,
         placeholder: bool = False,
         error_message: Optional[str] = None,
+        job_id: Optional[str] = None,
     ) -> str:
         title     = page_title or f"Release Notes — {release_notes.repo_full_name} PR#{release_notes.pr_number}"
         # Confluence normalizza gli spazi nel titolo: senza questa normalizzazione
         # la ricerca per titolo esatto può non trovare la pagina già creata.
         title     = " ".join(title.split())
-        body      = self._build_body(release_notes, placeholder=placeholder, error_message=error_message)
+        body      = self._build_body(release_notes, placeholder=placeholder,
+                                     error_message=error_message, job_id=job_id)
         parent_id = self._resolve_parent_id(space, parent_page)
 
         page_id = self._page_ids.get((space, title)) or self._find_page_id(space, title)
@@ -125,25 +127,23 @@ class ConfluenceExporter:
 
     # ── Body builder ──────────────────────────────────────────────────────────
 
-    def _build_body(self, rn, placeholder: bool = False, error_message: Optional[str] = None) -> str:
+    def _build_body(self, rn, placeholder: bool = False, error_message: Optional[str] = None,
+                    job_id: Optional[str] = None) -> str:
         parts = []
         parts.append(self._metadata_table(rn))
 
         if error_message:
-            parts.append(
-                '<ac:structured-macro ac:name="warning"><ac:rich-text-body>'
-                f'<p><strong>Generazione del documento non riuscita.</strong></p>'
-                f'<p>{_e(error_message)}</p>'
-                '</ac:rich-text-body></ac:structured-macro>'
-            )
+            parts.append(_error_block(error_message, job_id))
             return "\n".join(p for p in parts if p)
 
         if placeholder:
+            job_line = f'<p>Job ID: <code>{_e(job_id)}</code></p>' if job_id else ""
             parts.append(
                 '<ac:structured-macro ac:name="info"><ac:rich-text-body>'
                 '<p>⏳ <strong>Generazione del documento in corso…</strong></p>'
                 '<p>Questa pagina verrà aggiornata automaticamente al termine '
                 'dell\'analisi della Pull Request.</p>'
+                f'{job_line}'
                 '</ac:rich-text-body></ac:structured-macro>'
             )
             return "\n".join(p for p in parts if p)
@@ -361,6 +361,38 @@ class ConfluenceExporter:
 
 
 # ── Storage Format helpers ────────────────────────────────────────────────────
+
+def _error_block(error_message: str, job_id: Optional[str]) -> str:
+    """Warning box with the error and, when known, the job id plus a ready-to-run
+    Log Analytics query: every log line of the job is tagged "[job:<id>]"."""
+    when = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+    rows = []
+    if job_id:
+        rows.append(("Job ID", f"<code>{_e(job_id)}</code>"))
+    rows.append(("Orario", _e(when)))
+    rows.append(("Errore", _e(error_message)))
+    table = "<table><tbody>" + "".join(
+        f"<tr><th>{_e(k)}</th><td>{v}</td></tr>" for k, v in rows
+    ) + "</tbody></table>"
+
+    query = ""
+    if job_id:
+        kql = (
+            "AppServiceConsoleLogs\n"
+            "| where TimeGenerated > ago(7d)\n"
+            f'| where ResultDescription contains "{job_id}"\n'
+            "| project TimeGenerated, ResultDescription\n"
+            "| order by TimeGenerated asc"
+        )
+        query = "<p>Per i dettagli, esegui questa query su Log Analytics:</p>" + _code_macro(kql, "sql")
+
+    return (
+        '<ac:structured-macro ac:name="warning"><ac:rich-text-body>'
+        '<p><strong>Generazione del documento non riuscita.</strong></p>'
+        f'{table}{query}'
+        '</ac:rich-text-body></ac:structured-macro>'
+    )
+
 
 def _e(text: str) -> str:
     """HTML-escape una stringa per il Storage Format."""
