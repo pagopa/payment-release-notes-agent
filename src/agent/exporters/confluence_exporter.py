@@ -31,6 +31,9 @@ class ConfluenceExporter:
             password=token,
             cloud=True,
         )
+        # (space, title) → page_id delle pagine create/aggiornate da questa istanza:
+        # placeholder → contenuto finale → nota di errore aggiornano sempre la stessa pagina.
+        self._page_ids: dict = {}
 
     def export(
         self,
@@ -42,38 +45,70 @@ class ConfluenceExporter:
         error_message: Optional[str] = None,
     ) -> str:
         title     = page_title or f"Release Notes — {release_notes.repo_full_name} PR#{release_notes.pr_number}"
+        # Confluence normalizza gli spazi nel titolo: senza questa normalizzazione
+        # la ricerca per titolo esatto può non trovare la pagina già creata.
+        title     = " ".join(title.split())
         body      = self._build_body(release_notes, placeholder=placeholder, error_message=error_message)
         parent_id = self._resolve_parent_id(space, parent_page)
 
-        if parent_id:
-            result = self.confluence.update_or_create(
-                parent_id=parent_id,
-                title=title,
-                body=body,
-                representation="storage",
-            )
+        page_id = self._page_ids.get((space, title)) or self._find_page_id(space, title)
+        if page_id:
+            result = self._update(page_id, title, body, parent_id)
         else:
-            # Nessun padre: aggiorna se esiste, altrimenti crea in radice
-            existing = self.confluence.get_page_by_title(space=space, title=title)
-            if existing:
-                result = self.confluence.update_page(
-                    page_id=existing["id"],
-                    title=title,
-                    body=body,
-                    representation="storage",
-                )
-            else:
+            try:
                 result = self.confluence.create_page(
                     space=space,
                     title=title,
                     body=body,
+                    parent_id=parent_id,
+                    representation="storage",
                 )
+            except Exception as exc:
+                # La pagina esiste ma la ricerca non l'ha trovata (indice non
+                # ancora aggiornato, creazione concorrente, timeout lato client
+                # con creazione avvenuta lato server…): ritrova e aggiorna.
+                if "already exists" not in str(exc):
+                    raise
+                page_id = self._find_page_id(space, title, use_search=True)
+                if not page_id:
+                    raise
+                logger.warning("Confluence: page '%s' already exists (id=%s) — updating it", title, page_id)
+                result = self._update(page_id, title, body, parent_id)
+
+        if result.get("id"):
+            self._page_ids[(space, title)] = result["id"]
 
         links = result.get("_links", {})
         base = links.get("base") or (self.base_url.rstrip("/") + "/wiki")
         page_url = base.rstrip("/") + links.get("webui", "")
         logger.info("Confluence: page created/updated → %s", page_url)
         return page_url
+
+    def _update(self, page_id: str, title: str, body: str, parent_id: Optional[str]) -> dict:
+        return self.confluence.update_page(
+            page_id=page_id,
+            title=title,
+            body=body,
+            parent_id=parent_id,
+            representation="storage",
+        )
+
+    def _find_page_id(self, space: str, title: str, use_search: bool = False) -> Optional[str]:
+        """Cerca la pagina per titolo esatto; con use_search usa anche CQL, che è
+        tollerante a differenze di maiuscole/spazi rispetto al lookup esatto."""
+        page = self.confluence.get_page_by_title(space=space, title=title)
+        if page:
+            return page["id"]
+        if not use_search:
+            return None
+        escaped = title.replace("\\", "\\\\").replace('"', '\\"')
+        res = self.confluence.cql(f'space = "{space}" and type = page and title = "{escaped}"', limit=10)
+        wanted = title.casefold()
+        for item in (res or {}).get("results", []):
+            content = item.get("content") or {}
+            if " ".join(content.get("title", "").split()).casefold() == wanted:
+                return content.get("id")
+        return None
 
     def _resolve_parent_id(self, space: str, parent_page: Optional[str]) -> Optional[str]:
         if not parent_page:
