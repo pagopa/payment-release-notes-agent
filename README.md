@@ -225,6 +225,7 @@ The completed PDF is available via SAS URL for 1 hour.
 | `DOCUMENT_LANGUAGE` | `Italian` | Language for generated content |
 | `DEPARTMENT_NAME` | — | Department name in the PDF header |
 | `STALE_JOB_MINUTES` | `20` | Minutes before a pending job is marked as failed |
+| `LLM_MAX_CONCURRENT_JOBS` | `1` | Jobs allowed in the LLM phase at once; the others wait in line (the Copilot runtime is shared by all jobs) |
 | `LOG_LEVEL` | `INFO` | Python logging level |
 | `APPLICATIONINSIGHTS_CONNECTION_STRING` | — | Application Insights connection string; when set, enables Azure Monitor telemetry (set automatically on Azure) |
 

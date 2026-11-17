@@ -16,6 +16,15 @@ from src.agent.exporters.enhanced_pdf_exporter import EnhancedPDFExporter
 logger = logging.getLogger(__name__)
 
 
+class ReleaseNotesGenerationError(RuntimeError):
+    """An LLM section produced no usable output, so the document would be incomplete."""
+
+    def __init__(self, failed_sections: dict):
+        self.failed_sections = dict(failed_sections)
+        detail = "; ".join(f"{name}: {reason}" for name, reason in self.failed_sections.items())
+        super().__init__(f"Generazione sezioni LLM fallita — {detail}")
+
+
 class EnhancedReleaseNotesAgent:
     """Enhanced agent that uses the LLM to generate all document sections
     (executive summary, motivation, risk matrix, deployment guide, rollback,
@@ -93,9 +102,14 @@ class EnhancedReleaseNotesAgent:
 
         environments = [e.strip() for e in config.llm.environments.split(",") if e.strip()]
 
+        # Only the document sections below count as failures; reset so a reused
+        # generator does not carry failures over from a previous run.
+        self.document_generator.failed_sections.clear()
+
         # ── LLM: overview ─────────────────────────────────────────────────────
         logger.info("Generating overview section...")
         overview = self.document_generator.generate_overview(pr_details, commits, files, environments)
+        self._raise_if_failed()
         release_notes.summary = overview.get("executive_summary", "")
         release_notes.motivation_and_context = overview.get("motivation_and_context", "")
         release_notes.user_impact = overview.get("user_impact", "")
@@ -105,6 +119,7 @@ class EnhancedReleaseNotesAgent:
         # ── LLM: technical analysis ───────────────────────────────────────────
         logger.info("Generating technical analysis...")
         tech = self.document_generator.generate_technical_analysis(files)
+        self._raise_if_failed()
         release_notes.change_details_narrative = tech.get("change_details_narrative", "")
         release_notes.risk_matrix_items = tech.get("risk_matrix", [])
 
@@ -120,6 +135,7 @@ class EnhancedReleaseNotesAgent:
             environments=environments,
             owners=owners,
         )
+        self._raise_if_failed()
         release_notes.deployment_prerequisites = ops.get("prerequisites", [])
         release_notes.deployment_steps_by_env = ops.get("deployment_steps", {})
         release_notes.rollback_plan_items = ops.get("rollback_steps", [])
@@ -128,10 +144,18 @@ class EnhancedReleaseNotesAgent:
         # ── LLM: post-deploy verification ─────────────────────────────────────
         logger.info("Generating post-deploy verification...")
         verify = self.document_generator.generate_post_deploy_verification(files, overview)
+        self._raise_if_failed()
         release_notes.post_deploy_health_checks = verify.get("health_checks", [])
         release_notes.monitoring_notes = verify.get("monitoring_notes", "")
 
         return release_notes
+
+    def _raise_if_failed(self) -> None:
+        """Fail fast: once a section is lost the document is unusable, and every
+        further section would spend minutes on the same (likely) LLM outage."""
+        failed = self.document_generator.failed_sections
+        if failed:
+            raise ReleaseNotesGenerationError(failed)
 
     def _resolve_owners(self, repo_full_name: str, files: list) -> List[str]:
         """Resolve the CODEOWNERS entries covering the files touched by this PR."""
